@@ -3,7 +3,7 @@
 // Smart Classroom QR Attendance System - Offline Asset Caching
 // ============================================================================
 
-const CACHE_NAME = 'smart-classroom-qr-v1.0.0';
+const CACHE_NAME = 'smart-classroom-qr-v1.0.2';
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -51,7 +51,7 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Fetch Event: Network-first with Cache Fallback for dynamic requests, Stale-While-Revalidate for static
+// Fetch Event: Network-first with Cache Fallback
 self.addEventListener('fetch', (event) => {
   const requestUrl = new URL(event.request.url);
 
@@ -66,9 +66,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // Network-First: Always fetch newest code from GitHub Pages, fallback to cache if offline
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      const fetchPromise = fetch(event.request).then((networkResponse) => {
+    fetch(event.request)
+      .then((networkResponse) => {
         if (networkResponse && networkResponse.status === 200) {
           const responseToCache = networkResponse.clone();
           caches.open(CACHE_NAME).then((cache) => {
@@ -76,11 +77,9 @@ self.addEventListener('fetch', (event) => {
           });
         }
         return networkResponse;
-      }).catch(() => {
-        return cachedResponse;
-      });
-
-      return cachedResponse || fetchPromise;
-    })
+      })
+      .catch(() => {
+        return caches.match(event.request);
+      })
   );
 });
