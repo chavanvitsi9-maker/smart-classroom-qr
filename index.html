@@ -136,6 +136,16 @@
           })();
         </script>
 
+        <!-- PWA Install Prompt Card / Button -->
+        <div id="pwa-install-container" class="mt-3" style="border-top: 1px dashed var(--glass-border); padding-top: 1.25rem; text-align: center;">
+          <button type="button" class="btn-cyber btn-install-app" id="btn-install-pwa">
+            <span>📲</span> ติดตั้งแอปลงมือถือ
+          </button>
+          <p class="text-muted mt-1" style="font-size: 0.78rem;">
+            ติดตั้งลงหน้าจอโฮมเพื่อเปิดใช้งานได้สะดวกรวดเร็ว
+          </p>
+        </div>
+
       </div>
     </main>
 
@@ -242,27 +252,115 @@
     </div>
   </div>
 
+  <!-- iOS Install Instructions Modal -->
+  <div class="modal-backdrop" id="ios-install-modal">
+    <div class="modal-dialog text-center">
+      <div class="modal-header">
+        <h3 class="cyber-font glow-cyan" style="font-size: 1.15rem;">📲 วิธีติดตั้งลงบน iPhone / iPad</h3>
+        <button type="button" class="modal-close" id="btn-close-ios-modal">&times;</button>
+      </div>
+      <div style="text-align: left; font-size: 0.9rem; line-height: 1.6; color: var(--text-main);">
+        <p class="mb-2 text-muted" style="font-size: 0.85rem;">ทำตาม 3 ขั้นตอนง่ายๆ ใน Safari เพื่อติดตั้งแอปลงหน้าจอโฮม:</p>
+        
+        <div style="background: var(--sky-50); border: 1px solid var(--sky-200); border-radius: var(--radius-md); padding: 0.75rem 1rem; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.75rem;">
+          <span style="font-size: 1.4rem; background: #fff; border-radius: 8px; padding: 2px 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.06);">1️⃣</span>
+          <div>แตะปุ่ม <strong>แชร์ (Share)</strong> <span style="font-size: 1.15rem;">📤</span> ที่แถบเมนูด้านล่างของ Safari</div>
+        </div>
+
+        <div style="background: var(--sky-50); border: 1px solid var(--sky-200); border-radius: var(--radius-md); padding: 0.75rem 1rem; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.75rem;">
+          <span style="font-size: 1.4rem; background: #fff; border-radius: 8px; padding: 2px 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.06);">2️⃣</span>
+          <div>เลื่อนหาแล้วเลือก <strong>"เพิ่มไปยังหน้าจอโฮม"</strong> (Add to Home Screen ➕)</div>
+        </div>
+
+        <div style="background: var(--sky-50); border: 1px solid var(--sky-200); border-radius: var(--radius-md); padding: 0.75rem 1rem; margin-bottom: 1.25rem; display: flex; align-items: center; gap: 0.75rem;">
+          <span style="font-size: 1.4rem; background: #fff; border-radius: 8px; padding: 2px 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.06);">3️⃣</span>
+          <div>แตะ <strong>"เพิ่ม" (Add)</strong> ที่มุมขวาบน จะมีไอคอนแอปบนหน้าจอทันที!</div>
+        </div>
+      </div>
+      <button type="button" class="btn-cyber btn-cyan" id="btn-done-ios-modal">
+        รับทราบ เข้าใจแล้ว
+      </button>
+    </div>
+  </div>
+
   <!-- Application Logic (ES6 Module) -->
   <script type="module" src="app.js"></script>
 
-  <!-- Service Worker / Cache Management -->
+  <!-- Progressive Web App (PWA) Service Worker & Install Logic -->
   <script>
+    // 1. Register Service Worker
     if ('serviceWorker' in navigator) {
-      // Unregister any old stale service workers to ensure fresh code
-      navigator.serviceWorker.getRegistrations().then((registrations) => {
-        for (let reg of registrations) {
-          reg.unregister();
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then((reg) => console.log('[PWA] Service Worker registered with scope:', reg.scope))
+          .catch((err) => console.warn('[PWA] Service Worker registration error:', err));
+      });
+    }
+
+    // 2. Install Button & Logic for Android & iOS
+    let deferredPrompt = null;
+    const btnInstallPwa = document.getElementById('btn-install-pwa');
+    const pwaContainer = document.getElementById('pwa-install-container');
+    const iosModal = document.getElementById('ios-install-modal');
+    const btnCloseIosModal = document.getElementById('btn-close-ios-modal');
+    const btnDoneIosModal = document.getElementById('btn-done-ios-modal');
+
+    // Check if already opened in Standalone PWA mode
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+    if (isStandalone && pwaContainer) {
+      pwaContainer.style.display = 'none';
+    }
+
+    // Check if device is iOS (iPhone / iPad)
+    const isIos = () => {
+      const ua = window.navigator.userAgent.toLowerCase();
+      return /iphone|ipad|ipod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    };
+
+    // Capture Android / Chromium install prompt
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      if (pwaContainer && !isStandalone) {
+        pwaContainer.style.display = 'block';
+      }
+    });
+
+    // Install Button Click Handler
+    if (btnInstallPwa) {
+      btnInstallPwa.addEventListener('click', async () => {
+        if (deferredPrompt) {
+          // Native Android / Chromium prompt
+          deferredPrompt.prompt();
+          const { outcome } = await deferredPrompt.userChoice;
+          console.log('[PWA] User choice:', outcome);
+          if (outcome === 'accepted' && pwaContainer) {
+            pwaContainer.style.display = 'none';
+          }
+          deferredPrompt = null;
+        } else if (isIos()) {
+          // iOS Safari instructions modal
+          if (iosModal) iosModal.classList.add('active');
+        } else {
+          // General browser guidance
+          alert('💡 คุณสามารถติดตั้งแอปลงบนหน้าจอได้โดย:\n1. แตะที่เมนูของเบราว์เซอร์ (จุด 3 จุด หรือปุ่มแชร์)\n2. เลือก "ติดตั้งแอป" (Install App) หรือ "เพิ่มลงในหน้าจอหลัก" (Add to Home Screen)');
         }
       });
-      // Clear old caches
-      if ('caches' in window) {
-        caches.keys().then((names) => {
-          for (let name of names) {
-            caches.delete(name);
-          }
-        });
-      }
     }
+
+    // iOS Modal close handlers
+    const closeIosModal = () => {
+      if (iosModal) iosModal.classList.remove('active');
+    };
+    if (btnCloseIosModal) btnCloseIosModal.addEventListener('click', closeIosModal);
+    if (btnDoneIosModal) btnDoneIosModal.addEventListener('click', closeIosModal);
+
+    // Hide install button when app is successfully installed
+    window.addEventListener('appinstalled', () => {
+      console.log('[PWA] App successfully installed');
+      if (pwaContainer) pwaContainer.style.display = 'none';
+      deferredPrompt = null;
+    });
   </script>
 </body>
 </html>
