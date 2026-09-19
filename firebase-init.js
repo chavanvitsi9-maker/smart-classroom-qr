@@ -12,6 +12,7 @@ import {
   onAuthStateChanged, 
   signOut, 
   createUserWithEmailAndPassword, 
+  signInAnonymously,
   updateProfile 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { 
@@ -29,7 +30,7 @@ import {
   remove
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
-// [PROJECT CONFIGURATION]
+// [PROJECT 1: QR ATTENDANCE CONFIGURATION]
 export const firebaseConfig = {
   apiKey: "AIzaSyBDNgcERw281tizuvx8fD4NB4p1UOMkRZ8",
   authDomain: "smart-classroom-qr.firebaseapp.com",
@@ -41,20 +42,33 @@ export const firebaseConfig = {
   measurementId: "G-T5GMXMD80L"
 };
 
+// [PROJECT 2: CLASSROOM CONFIGURATION - Single Source of Truth for Students]
+export const classroomFirebaseConfig = {
+  apiKey: "AIzaSyBSzuUeBGUXnz8xvGF3TnRr_8ssvwYxU2A",
+  authDomain: "smart-classroom-6c776.firebaseapp.com",
+  databaseURL: "https://smart-classroom-6c776-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "smart-classroom-6c776",
+  storageBucket: "smart-classroom-6c776.firebasestorage.app",
+  messagingSenderId: "501892811986",
+  appId: "1:501892811986:web:2b3c75612e64650dd3310b",
+  measurementId: "G-C03W6RMNC2"
+};
+
 // Teacher emails allowed to access Teacher Dashboard (admin.html)
 export const ALLOWED_TEACHER_EMAILS = [
   "chavanvit.si9@gmail.com",
   "teacher@example.com"
 ];
 
-// Dummy domain appended to Student ID for email/password authentication
-export const STUDENT_EMAIL_DOMAIN = "@student.local";
-
-// Initialize Primary Firebase Services
+// Initialize Primary Firebase Services (Attendance & Teacher Auth)
 export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getDatabase(app);
 export const googleProvider = new GoogleAuthProvider();
+
+// Initialize Classroom Database (Shared Student Roster & PIN)
+export const classroomApp = initializeApp(classroomFirebaseConfig, "classroomApp");
+export const classroomDb = getDatabase(classroomApp);
 
 // Re-export Modular Auth Functions
 export {
@@ -64,6 +78,7 @@ export {
   onAuthStateChanged,
   signOut,
   createUserWithEmailAndPassword,
+  signInAnonymously,
   updateProfile
 };
 
@@ -110,33 +125,9 @@ export function isTeacherUser(userOrEmail) {
   if (isGoogle) {
     return true;
   }
-  if (email && !email.endsWith(STUDENT_EMAIL_DOMAIN)) {
-    return true;
-  }
   return false;
 }
 
 export function isTeacherEmail(email) {
   return isTeacherUser(email);
-}
-
-/**
- * Registers a student account in Firebase Auth using an ephemeral secondary Firebase App.
- * This prevents the current logged-in teacher from being logged out by createUserWithEmailAndPassword.
- */
-export async function createStudentAuthAccount(studentId, password) {
-  const email = `${studentId.trim()}${STUDENT_EMAIL_DOMAIN}`;
-  const secondaryAppName = `student-registration-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-  const secondaryApp = initializeApp(firebaseConfig, secondaryAppName);
-  const secondaryAuth = getAuth(secondaryApp);
-
-  try {
-    const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, password);
-    await signOut(secondaryAuth);
-    await deleteApp(secondaryApp);
-    return userCredential.user;
-  } catch (error) {
-    await deleteApp(secondaryApp).catch(() => {});
-    throw error;
-  }
 }

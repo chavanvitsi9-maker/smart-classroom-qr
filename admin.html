@@ -234,12 +234,12 @@
             </div>
 
             <div class="form-group">
-              <label class="form-label" for="new-student-password">รหัสผ่านเริ่มต้น</label>
-              <input type="password" id="new-student-password" class="input-cyber" placeholder="อย่างน้อย 6 ตัวอักษร" minlength="6" required>
+              <label class="form-label" for="new-student-password">รหัส PIN เริ่มต้น (4 หลัก)</label>
+              <input type="text" id="new-student-password" class="input-cyber" placeholder="1234" value="1234" maxlength="10" required>
             </div>
 
             <button type="submit" class="btn-cyber btn-cyan" id="btn-save-student">
-              <span>💾</span> บันทึกและสร้างบัญชี
+              <span>💾</span> บันทึกข้อมูลนักเรียน
             </button>
           </form>
 
@@ -266,7 +266,7 @@
                   <th>รหัสนักศึกษา</th>
                   <th>ชื่อ - สกุล</th>
                   <th>กลุ่มเรียน</th>
-                  <th>อีเมลระบบ</th>
+                  <th>รหัส PIN (4 หลัก)</th>
                   <th style="text-align: center;">จัดการ</th>
                 </tr>
               </thead>
@@ -497,6 +497,11 @@
         <div class="form-group">
           <label class="form-label" for="edit-student-room-input">ห้องเรียน / กลุ่มเรียน:</label>
           <input type="text" id="edit-student-room-input" class="input-cyber" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="edit-student-pin-input">รหัส PIN (4 หลัก):</label>
+          <input type="text" id="edit-student-pin-input" class="input-cyber" maxlength="10" placeholder="1234">
         </div>
 
         <div style="display: flex; gap: 0.75rem; margin-top: 1.5rem;">

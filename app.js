@@ -6,11 +6,13 @@
 import { 
   auth, 
   db, 
+  classroomDb,
   googleProvider,
   signInWithEmailAndPassword, 
   signInWithPopup, 
   onAuthStateChanged, 
   signOut,
+  signInAnonymously,
   isTeacherEmail,
   isTeacherUser,
   ref,
@@ -135,41 +137,130 @@ function clearLoginAlert() {
 }
 
 // ----------------------------------------------------------------------------
-// 3. Student Login Flow
+// 3. Student Login Flow (Unified PIN from Classroom Database)
 // ----------------------------------------------------------------------------
 studentLoginForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   clearLoginAlert();
   const rawId = studentIdInput.value.trim();
-  const password = studentPasswordInput.value;
+  const enteredPin = studentPasswordInput.value.trim();
 
-  if (!rawId || !password) {
-    showLoginAlert("โปรดระบุรหัสนักศึกษาและรหัสผ่าน");
+  if (!rawId || !enteredPin) {
+    showLoginAlert("โปรดระบุรหัสนักศึกษาและรหัส PIN");
     return;
   }
 
   btnStudentLogin.disabled = true;
-  btnStudentLogin.innerHTML = `<span>⏳</span> กำลังเข้าสู่ระบบ...`;
+  btnStudentLogin.innerHTML = `<span>⏳</span> กำลังตรวจสอบข้อมูล...`;
 
   try {
-    // Append dummy domain behind the scenes
-    const studentEmail = `${rawId}@student.local`;
-    await signInWithEmailAndPassword(auth, studentEmail, password);
-    // onAuthStateChanged will handle UI transition
+    // 1. ค้นหาข้อมูลนักเรียนจาก Classroom Database (smart-classroom-6c776)
+    let student = null;
+    let targetKey = rawId;
+
+    const snap = await get(ref(classroomDb, `Students/${rawId}`));
+    if (snap.exists()) {
+      student = snap.val();
+    } else {
+      // ค้นหาเผื่อกรณี key ใน Firebase ไม่ใช่ rawId
+      const allSnap = await get(ref(classroomDb, "Students"));
+      if (allSnap.exists()) {
+        const allVal = allSnap.val() || {};
+        const matched = Object.keys(allVal).find(k => {
+          const s = allVal[k];
+          return String(s.Student_ID || s.student_id || k).trim() === rawId;
+        });
+        if (matched) {
+          student = allVal[matched];
+          targetKey = matched;
+        }
+      }
+    }
+
+    // ถ้าใน Classroom ไม่พบ ให้ค้นใน students ของระบบเช็คชื่อเผื่อมีข้อมูลเดิม
+    if (!student) {
+      const localSnap = await get(ref(db, `students/${rawId}`));
+      if (localSnap.exists()) {
+        student = localSnap.val();
+      }
+    }
+
+    if (!student) {
+      showLoginAlert(`ไม่พบรหัสนักเรียน "${rawId}" ในระบบ กรุณาตรวจสอบรหัสหรือติดต่อคุณครูผู้สอนครับ`);
+      return;
+    }
+
+    // 2. ตรวจสอบ PIN (รองรับ PIN, pin, Password, password หรือ default 1234)
+    const expectedPin = String(student.PIN || student.pin || student.Password || student.password || "1234").trim();
+    if (expectedPin !== enteredPin) {
+      showLoginAlert("รหัส PIN ไม่ถูกต้อง (รหัสเริ่มต้นคือ 1234 หรือ PIN เดียวกับระบบห้องเรียน)");
+      studentPasswordInput.value = "";
+      studentPasswordInput.focus();
+      return;
+    }
+
+    // 3. ยืนยันตัวตนสำเร็จ! กำหนด State นักเรียน
+    currentStudentId = rawId;
+    currentStudentProfile = {
+      fullName: student.Name_Surname || student.name || student.fullName || `นักเรียน ${rawId}`,
+      studentId: rawId,
+      gradeGroup: student.Room || student.room || student.gradeGroup || "ไม่ระบุห้อง"
+    };
+
+    // เก็บ session ใน sessionStorage
+    sessionStorage.setItem("qr_student_session", JSON.stringify({
+      studentId: currentStudentId,
+      profile: currentStudentProfile
+    }));
+
+    // เข้าสู่ระบบ Anonymous เพื่อให้ผ่านเงื่อนไข auth != null ของกฎความปลอดภัย
+    try {
+      await signInAnonymously(auth);
+    } catch (authErr) {
+      console.warn("Anonymous sign-in skipped/failed:", authErr);
+    }
+
+    activateStudentApp(currentStudentId, currentStudentProfile);
+
   } catch (error) {
     console.error("Student login error:", error);
-    let errorMsg = "เข้าสู่ระบบไม่สำเร็จ รหัสนักศึกษาหรือรหัสผ่านไม่ถูกต้อง";
-    if (error.code === "auth/user-not-found") {
-      errorMsg = "ไม่พบบัญชีนักศึกษานี้ในระบบ โปรดให้อาจารย์ลงทะเบียนให้ก่อน";
-    } else if (error.code === "auth/wrong-password" || error.code === "auth/invalid-credential") {
-      errorMsg = "รหัสผ่านไม่ถูกต้อง โปรดลองอีกครั้ง";
-    }
-    showLoginAlert(errorMsg);
+    showLoginAlert("เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์: " + error.message);
   } finally {
     btnStudentLogin.disabled = false;
     btnStudentLogin.innerHTML = `<span>⚡</span> เข้าสู่ระบบนักเรียน`;
   }
 });
+
+function activateStudentApp(studentId, profile) {
+  authSection.classList.add("hidden");
+  studentAppSection.classList.remove("hidden");
+  studentDisplayName.textContent = `${profile?.fullName || 'นักศึกษา'} (${studentId})`;
+  
+  const studentDisplayRoom = document.getElementById("student-display-room");
+  if (studentDisplayRoom) {
+    const roomText = profile?.gradeGroup || profile?.room || "ไม่ระบุ";
+    studentDisplayRoom.textContent = `ชั้นเรียน: ${roomText}`;
+  }
+
+  listenToSubjects();
+  listenToStudentAttendanceHistory(studentId);
+}
+
+function restoreStudentSessionIfAny() {
+  try {
+    const saved = sessionStorage.getItem("qr_student_session");
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed.studentId && parsed.profile) {
+        currentStudentId = parsed.studentId;
+        currentStudentProfile = parsed.profile;
+        activateStudentApp(currentStudentId, currentStudentProfile);
+        return true;
+      }
+    }
+  } catch(e) {}
+  return false;
+}
 
 // ----------------------------------------------------------------------------
 // 4. Teacher Login Flow (Google)
@@ -185,7 +276,6 @@ btnTeacherGoogleLogin.addEventListener("click", async () => {
     if (isTeacherUser(user)) {
       window.location.href = "admin.html";
     } else {
-      // Logged in with Google, but not in authorized teacher list
       showLoginAlert(`บัญชี ${user.email} ไม่มีสิทธิ์เข้าใช้งานแดชบอร์ดอาจารย์`);
       await signOut(auth);
     }
@@ -202,8 +292,9 @@ btnTeacherGoogleLogin.addEventListener("click", async () => {
 
 // Logout
 btnLogout.addEventListener("click", async () => {
+  sessionStorage.removeItem("qr_student_session");
   await stopScanner();
-  await signOut(auth);
+  await signOut(auth).catch(() => {});
   window.location.reload();
 });
 
@@ -213,60 +304,26 @@ btnLogout.addEventListener("click", async () => {
 onAuthStateChanged(auth, async (user) => {
   if (user) {
     currentUser = user;
-    // If teacher, redirect to admin.html
     if (isTeacherUser(user)) {
       window.location.href = "admin.html";
       return;
     }
-
-    // Extract student ID from dummy domain
-    const email = (user.email || "").toLowerCase().trim();
-    if (email.includes("@student.local")) {
-      currentStudentId = email.replace("@student.local", "").trim();
-    } else {
-      currentStudentId = email.split("@")[0];
+    // Anonymous session for student
+    if (user.isAnonymous) {
+      if (restoreStudentSessionIfAny()) return;
     }
-
-    // Fetch student profile details from RTDB
-    await loadStudentProfile(currentStudentId);
-
-    // Switch UI to Student App
-    authSection.classList.add("hidden");
-    studentAppSection.classList.remove("hidden");
-    studentDisplayName.textContent = `${currentStudentProfile?.fullName || 'นักศึกษา'} (${currentStudentId})`;
-    
-    // Display student room/grade
-    const studentDisplayRoom = document.getElementById("student-display-room");
-    if (studentDisplayRoom) {
-      const roomText = currentStudentProfile?.gradeGroup || currentStudentProfile?.room || "ไม่ระบุ";
-      studentDisplayRoom.textContent = `ชั้นเรียน: ${roomText}`;
-    }
-
-    // Initialize Realtime Subjects and Today's History
-    listenToSubjects();
-    listenToStudentAttendanceHistory(currentStudentId);
-
   } else {
     currentUser = null;
-    currentStudentId = null;
-    authSection.classList.remove("hidden");
-    studentAppSection.classList.add("hidden");
+    if (!restoreStudentSessionIfAny()) {
+      currentStudentId = null;
+      authSection.classList.remove("hidden");
+      studentAppSection.classList.add("hidden");
+    }
   }
 });
 
-async function loadStudentProfile(studentId) {
-  try {
-    const snapshot = await get(ref(db, `students/${studentId}`));
-    if (snapshot.exists()) {
-      currentStudentProfile = snapshot.val();
-    } else {
-      currentStudentProfile = { fullName: `รหัสนักศึกษา ${studentId}`, studentId, gradeGroup: "" };
-    }
-  } catch (e) {
-    console.warn("Could not load student profile:", e);
-    currentStudentProfile = { fullName: `รหัสนักศึกษา ${studentId}`, studentId, gradeGroup: "" };
-  }
-}
+// Initial Session Check
+restoreStudentSessionIfAny();
 
 // ----------------------------------------------------------------------------
 // 6. Subject Selection Grid (Filtered by Student's Grade/Class)

@@ -6,6 +6,7 @@
 import {
   auth,
   db,
+  classroomDb,
   signOut,
   onAuthStateChanged,
   isTeacherEmail,
@@ -15,8 +16,7 @@ import {
   get,
   update,
   remove,
-  onValue,
-  createStudentAuthAccount
+  onValue
 } from "./firebase-init.js";
 
 // State
@@ -80,6 +80,7 @@ const editStudentIdHidden = document.getElementById("edit-student-id-hidden");
 const editStudentIdDisplay = document.getElementById("edit-student-id-display");
 const editStudentNameInput = document.getElementById("edit-student-name-input");
 const editStudentRoomInput = document.getElementById("edit-student-room-input");
+const editStudentPinInput = document.getElementById("edit-student-pin-input");
 
 // Subject Management DOM
 const createSubjectForm = document.getElementById("create-subject-form");
@@ -456,7 +457,7 @@ function generateDynamicQr() {
 }
 
 // ----------------------------------------------------------------------------
-// 6. STUDENT MANAGEMENT & ROSTER
+// 6. STUDENT MANAGEMENT & ROSTER (Classroom Database - Single Source of Truth)
 // ----------------------------------------------------------------------------
 createStudentForm.addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -465,55 +466,45 @@ createStudentForm.addEventListener("submit", async (e) => {
   const studentId = newStudentId.value.trim();
   const fullName = newStudentName.value.trim();
   const gradeRoom = newStudentRoom.value.trim();
-  const password = newStudentPassword.value;
+  const pin = (newStudentPassword.value || "1234").trim();
 
-  if (!studentId || !fullName || !password) {
-    alert("กรุณากรอกข้อมูลให้ครบทุกช่อง");
+  if (!studentId || !fullName) {
+    alert("กรุณากรอกรหัสนักเรียนและชื่อ-นามสกุลให้ครบถ้วน");
     return;
   }
 
   btnSaveStudent.disabled = true;
-  btnSaveStudent.innerHTML = `<span>⏳</span> กำลังสร้างบัญชี...`;
+  btnSaveStudent.innerHTML = `<span>⏳</span> กำลังบันทึกข้อมูล...`;
 
   try {
-    // 1. Create Auth Account using Ephemeral Secondary Firebase App (Never logs out teacher!)
-    await createStudentAuthAccount(studentId, password);
+    // บันทึกไปยัง Classroom Database โดยตรง (ทั้งระบบห้องเรียนและเช็คชื่อใช้ร่วมกัน)
+    await set(ref(classroomDb, `Students/${studentId}`), {
+      Student_ID: studentId,
+      Name_Surname: fullName,
+      Room: gradeRoom,
+      PIN: pin,
+      pin: pin
+    });
 
-    // 2. Save Student Profile in Realtime Database under /students/{studentId}
-    const studentProfile = {
-      studentId: studentId,
-      fullName: fullName,
-      gradeGroup: gradeRoom,
-      email: `${studentId}@student.local`,
-      createdAt: Date.now(),
-      createdBy: currentTeacher?.email || "teacher"
-    };
-
-    await set(ref(db, `students/${studentId}`), studentProfile);
-
-    // Success alert
     studentCreationAlert.className = "result-box badge-ontime";
-    studentCreationAlert.innerHTML = `✅ เพิ่มนักเรียน <strong>${fullName} (${studentId})</strong> สำเร็จ! สามารถใช้นักเรียนล็อกอินได้ทันที`;
+    studentCreationAlert.innerHTML = `✅ บันทึกนักเรียน <strong>${fullName} (${studentId})</strong> สำเร็จ! รหัส PIN: <strong>${pin}</strong>`;
     studentCreationAlert.style.display = "block";
 
     createStudentForm.reset();
+    newStudentPassword.value = "1234";
   } catch (err) {
     console.error("Create student error:", err);
-    let errMsg = err.message;
-    if (err.code === "auth/email-already-in-use") {
-      errMsg = `รหัสนักเรียน ${studentId} ถูกลงทะเบียนไว้แล้วในระบบ`;
-    }
     studentCreationAlert.className = "result-box badge-absent";
-    studentCreationAlert.innerHTML = `❌ ไม่สามารถสร้างบัญชีได้: ${errMsg}`;
+    studentCreationAlert.innerHTML = `❌ ไม่สามารถบันทึกข้อมูลได้: ${err.message}`;
     studentCreationAlert.style.display = "block";
   } finally {
     btnSaveStudent.disabled = false;
-    btnSaveStudent.innerHTML = `<span>💾</span> บันทึกและสร้างบัญชี`;
+    btnSaveStudent.innerHTML = `<span>💾</span> บันทึกข้อมูลนักเรียน`;
   }
 });
 
 function initStudentRosterListener() {
-  const studentsRef = ref(db, "students");
+  const studentsRef = ref(classroomDb, "Students");
 
   onValue(studentsRef, (snapshot) => {
     if (!snapshot.exists()) {
@@ -523,7 +514,16 @@ function initStudentRosterListener() {
     }
 
     const data = snapshot.val();
-    allStudents = Object.values(data);
+    allStudents = Object.keys(data).map(k => {
+      const s = data[k];
+      return {
+        studentId: String(s.Student_ID || s.studentId || k).trim(),
+        fullName: s.Name_Surname || s.name || s.fullName || `นักเรียน ${k}`,
+        gradeGroup: s.Room || s.room || s.gradeGroup || "-",
+        pin: s.PIN || s.pin || s.Password || s.password || "1234",
+        key: k
+      };
+    });
     allStudents.sort((a, b) => a.studentId.localeCompare(b.studentId));
     renderStudentRoster();
   });
@@ -535,7 +535,8 @@ function renderStudentRoster() {
     return !search ||
       (s.studentId && s.studentId.toLowerCase().includes(search)) ||
       (s.fullName && s.fullName.toLowerCase().includes(search)) ||
-      (s.gradeGroup && s.gradeGroup.toLowerCase().includes(search));
+      (s.gradeGroup && s.gradeGroup.toLowerCase().includes(search)) ||
+      (s.pin && s.pin.toLowerCase().includes(search));
   });
 
   if (filtered.length === 0) {
@@ -555,7 +556,7 @@ function renderStudentRoster() {
         <td><strong>${student.studentId}</strong></td>
         <td>${student.fullName}</td>
         <td><span class="badge-status badge-ontime" style="font-size: 0.75rem;">${student.gradeGroup || '-'}</span></td>
-        <td style="color: var(--text-muted); font-size: 0.85rem;">${student.email}</td>
+        <td><span class="badge-status badge-late" style="font-size: 0.85rem; font-family: monospace; letter-spacing: 1px;">🔑 ${student.pin}</span></td>
         <td style="text-align: center; white-space: nowrap;">
           <button type="button" class="btn-cyber btn-secondary btn-edit-student" data-id="${student.studentId}" style="width: auto; padding: 0.25rem 0.6rem; font-size: 0.75rem; color: var(--neon-cyan); margin-right: 0.35rem;">
             ✏️ แก้ไข
@@ -583,9 +584,9 @@ function renderStudentRoster() {
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const id = btn.dataset.id;
-      if (confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบข้อมูลนักเรียนรหัส ${id}?`)) {
+      if (confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบข้อมูลนักเรียนรหัส ${id}? (ข้อมูลจะถูกลบทั้งจากระบบห้องเรียนและเช็คชื่อ)`)) {
         try {
-          await remove(ref(db, `students/${id}`));
+          await remove(ref(classroomDb, `Students/${id}`));
         } catch (err) {
           alert("ไม่สามารถลบได้: " + err.message);
         }
@@ -604,6 +605,9 @@ function openEditStudentModal(student) {
   editStudentIdDisplay.textContent = student.studentId;
   editStudentNameInput.value = student.fullName || "";
   editStudentRoomInput.value = student.gradeGroup || "";
+  if (editStudentPinInput) {
+    editStudentPinInput.value = student.pin || "1234";
+  }
 
   editStudentModal.classList.add("active");
 }
@@ -622,6 +626,7 @@ if (editStudentForm) {
     const id = editStudentIdHidden.value;
     const fullName = editStudentNameInput.value.trim();
     const gradeGroup = editStudentRoomInput.value.trim();
+    const pin = (editStudentPinInput?.value || "1234").trim();
 
     if (!id || !fullName) return;
 
@@ -630,11 +635,11 @@ if (editStudentForm) {
     btnConfirm.textContent = "กำลังบันทึก...";
 
     try {
-      await update(ref(db, `students/${id}`), {
-        fullName: fullName,
-        gradeGroup: gradeGroup,
-        updatedAt: Date.now(),
-        updatedBy: currentTeacher?.email || "teacher"
+      await update(ref(classroomDb, `Students/${id}`), {
+        Name_Surname: fullName,
+        Room: gradeGroup,
+        PIN: pin,
+        pin: pin
       });
       closeEditStudentModal();
     } catch (err) {

@@ -61,27 +61,32 @@
         <!-- Student Login Form -->
         <form id="student-login-form">
           <div class="form-group">
-            <label class="form-label" for="student-id-input">รหัสนักศึกษา / รหัสนักเรียน</label>
+            <label class="form-label" for="student-id-input">🆔 รหัสนักศึกษา / รหัสนักเรียน</label>
             <input 
               type="text" 
               id="student-id-input" 
               class="input-cyber" 
-              placeholder="เช่น 6501001" 
+              placeholder="เช่น 6601 หรือ 6501001" 
               autocomplete="username"
               required
             >
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="student-password-input">รหัสผ่าน</label>
+            <label class="form-label" for="student-password-input">🔑 รหัสผ่าน (PIN 4 หลัก)</label>
             <input 
               type="password" 
               id="student-password-input" 
               class="input-cyber" 
-              placeholder="••••••••" 
+              placeholder="รหัส PIN 4 หลัก (เช่น 1234)" 
+              maxlength="10"
+              inputmode="numeric"
               autocomplete="current-password"
               required
             >
+            <small class="text-muted mt-1" style="display: block; font-size: 0.78rem;">
+              * รหัสเริ่มต้นคือ 1234 (ใช้รหัส PIN เดียวกับระบบห้องเรียน)
+            </small>
           </div>
 
           <button type="submit" class="btn-cyber btn-cyan mt-2" id="btn-student-login">
