@@ -27,6 +27,7 @@ let currentUser = null;
 let currentStudentId = null;
 let currentStudentProfile = null;
 let selectedSubject = null;
+let currentFilteredSubjects = [];
 let html5QrCode = null;
 let isScanning = false;
 let isSubmitting = false;
@@ -53,8 +54,15 @@ const btnTeacherGoogleLogin = document.getElementById("btn-teacher-google-login"
 const loginAlert = document.getElementById("login-alert");
 const studentDisplayName = document.getElementById("student-display-name");
 const btnLogout = document.getElementById("btn-logout");
-const subjectGridContainer = document.getElementById("subject-grid-container");
+const studentSubjectSelect = document.getElementById("student-subject-select");
 const selectedSubjectBadge = document.getElementById("selected-subject-badge");
+const selectedSubjectDetail = document.getElementById("selected-subject-detail");
+const detailSubjectCode = document.getElementById("detail-subject-code");
+const detailSubjectName = document.getElementById("detail-subject-name");
+const detailSubjectTarget = document.getElementById("detail-subject-target");
+const detailSubjectTime = document.getElementById("detail-subject-time");
+const detailSubjectRoom = document.getElementById("detail-subject-room");
+const subjectEmptyNotice = document.getElementById("subject-empty-notice");
 const btnStartScanner = document.getElementById("btn-start-scanner");
 const btnStopScanner = document.getElementById("btn-stop-scanner");
 const scanValidationResult = document.getElementById("scan-validation-result");
@@ -371,68 +379,121 @@ function listenToSubjects() {
     list.sort((a, b) => (a.code || "").localeCompare(b.code || ""));
 
     // Filter: Only subjects matching this student's grade/class
-    const filtered = list.filter(s => isSubjectForStudent(s, currentStudentProfile));
-    renderSubjectCards(filtered);
+    currentFilteredSubjects = list.filter(s => isSubjectForStudent(s, currentStudentProfile));
+    renderSubjectDropdown(currentFilteredSubjects);
   });
 }
 
-function renderSubjectCards(subjects) {
-  subjectGridContainer.innerHTML = "";
+function renderSubjectDropdown(subjects) {
+  if (!studentSubjectSelect) return;
+
+  studentSubjectSelect.innerHTML = "";
 
   if (!subjects || subjects.length === 0) {
     const studentRoom = currentStudentProfile?.gradeGroup || currentStudentProfile?.room || "-";
-    subjectGridContainer.innerHTML = `
-      <div style="grid-column: 1 / -1; text-align: center; padding: 2.5rem 1rem; background: var(--bg-card); border-radius: 12px; border: 1.5px dashed var(--glass-border);">
-        <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">📚</div>
+    studentSubjectSelect.innerHTML = `<option value="">-- ไม่พบวิชาเรียนสำหรับชั้นเรียนของคุณ (${studentRoom}) --</option>`;
+    studentSubjectSelect.disabled = true;
+
+    if (subjectEmptyNotice) {
+      subjectEmptyNotice.classList.remove("hidden");
+      subjectEmptyNotice.innerHTML = `
+        <div style="font-size: 2.25rem; margin-bottom: 0.35rem;">📚</div>
         <div style="font-weight: 700; color: var(--text-main); font-size: 1.05rem;">
           ไม่พบวิชาเรียนสำหรับชั้นเรียนของคุณ (${studentRoom})
         </div>
         <p style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.35rem;">
           อาจารย์ผู้สอนยังไม่ได้เปิดวิชาเรียนสำหรับระดับชั้นนี้ หากมีข้อสงสัยโปรดติดต่อผู้สอน
         </p>
-      </div>
-    `;
+      `;
+    }
+
     selectedSubject = null;
-    selectedSubjectBadge.textContent = "ไม่มีวิชาเรียนที่เปิดสอน";
-    selectedSubjectBadge.className = "badge-status badge-absent";
+    updateSelectedSubjectDisplay(null);
+    if (selectedSubjectBadge) {
+      selectedSubjectBadge.textContent = "ไม่มีวิชาเรียน";
+      selectedSubjectBadge.className = "badge-status badge-absent";
+    }
     return;
   }
 
-  subjects.forEach(subject => {
-    const card = document.createElement("div");
-    card.className = "subject-card";
-    const subIdentifier = subject.id || subject.code;
-    if (selectedSubject && (selectedSubject.id ? selectedSubject.id === subject.id : selectedSubject.code === subject.code)) {
-      card.classList.add("selected");
-      selectedSubject = subject; // Update with latest info
-      selectedSubjectBadge.textContent = `${subject.code}: ${subject.name}`;
+  // Active subjects exist: enable dropdown
+  studentSubjectSelect.disabled = false;
+  if (subjectEmptyNotice) subjectEmptyNotice.classList.add("hidden");
+
+  let defaultOption = `<option value="" ${!selectedSubject ? 'selected' : ''}>-- แตะเพื่อเลือกวิชาเรียน --</option>`;
+  
+  const optionsHtml = subjects.map(s => {
+    const subId = s.id || s.code;
+    const targetLabel = s.targetGrade ? `(ชั้น ${s.targetGrade})` : "(ทุกชั้นเรียน)";
+    const roomLabel = s.room ? `, ห้อง ${s.room}` : "";
+    const timeLabel = s.defaultStartTime ? `, ⏰ ${s.defaultStartTime} น.` : "";
+    const isSelected = selectedSubject && (selectedSubject.id ? selectedSubject.id === s.id : selectedSubject.code === s.code);
+    return `<option value="${subId}" ${isSelected ? 'selected' : ''}>${s.code} - ${s.name} ${targetLabel}${roomLabel}${timeLabel}</option>`;
+  }).join("");
+
+  studentSubjectSelect.innerHTML = defaultOption + optionsHtml;
+
+  // Restore selection if still valid, or auto-select if only 1 subject
+  if (selectedSubject) {
+    const match = subjects.find(s => (s.id || s.code) === (selectedSubject.id || selectedSubject.code));
+    if (match) {
+      selectedSubject = match;
+      studentSubjectSelect.value = match.id || match.code;
+      updateSelectedSubjectDisplay(match);
+    } else {
+      selectedSubject = null;
+      updateSelectedSubjectDisplay(null);
     }
-    card.dataset.id = subIdentifier;
-    card.dataset.code = subject.code;
-    const targetLabel = subject.targetGrade ? `ชั้น ${subject.targetGrade}` : "ทุกชั้นเรียน";
-    card.innerHTML = `
-      <div class="subject-code">${subject.code}</div>
-      <div class="subject-name">${subject.name}</div>
-      <div style="font-size: 0.8rem; color: var(--sky-500); font-weight: 600; margin-bottom: 0.35rem;">
-        🎓 ${targetLabel}
-      </div>
-      <div class="subject-time">
-        <span>⏰ เวลาเริ่มเรียน:</span>
-        <strong style="color: var(--neon-cyan);">${subject.defaultStartTime || '09:00'} น.</strong>
-      </div>
-      ${subject.room ? `<div style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.25rem;">📍 ห้อง: ${subject.room}</div>` : ''}
-    `;
+  } else if (subjects.length === 1) {
+    selectedSubject = subjects[0];
+    studentSubjectSelect.value = subjects[0].id || subjects[0].code;
+    updateSelectedSubjectDisplay(subjects[0]);
+  } else {
+    updateSelectedSubjectDisplay(null);
+  }
+}
 
-    card.addEventListener("click", () => {
-      document.querySelectorAll(".subject-card").forEach(c => c.classList.remove("selected"));
-      card.classList.add("selected");
-      selectedSubject = subject;
-      selectedSubjectBadge.textContent = `${subject.code}: ${subject.name}`;
+function updateSelectedSubjectDisplay(subject) {
+  if (!subject) {
+    if (selectedSubjectDetail) selectedSubjectDetail.classList.add("hidden");
+    if (selectedSubjectBadge) {
+      selectedSubjectBadge.textContent = "โปรดเลือกวิชา";
       selectedSubjectBadge.className = "badge-status badge-ontime";
-      hideScanValidation();
-    });
+    }
+    return;
+  }
 
-    subjectGridContainer.appendChild(card);
+  const targetLabel = subject.targetGrade ? `ชั้น ${subject.targetGrade}` : "ทุกชั้นเรียน";
+  if (selectedSubjectBadge) {
+    selectedSubjectBadge.textContent = `${subject.code}: ${subject.name}`;
+    selectedSubjectBadge.className = "badge-status badge-ontime";
+  }
+
+  if (selectedSubjectDetail) {
+    selectedSubjectDetail.classList.remove("hidden");
+    if (detailSubjectCode) detailSubjectCode.textContent = subject.code;
+    if (detailSubjectName) detailSubjectName.textContent = subject.name;
+    if (detailSubjectTarget) detailSubjectTarget.textContent = `🎓 ${targetLabel}`;
+    if (detailSubjectTime) detailSubjectTime.textContent = `${subject.defaultStartTime || '09:00'} น.`;
+    if (detailSubjectRoom) detailSubjectRoom.textContent = subject.room || "-";
+  }
+}
+
+if (studentSubjectSelect) {
+  studentSubjectSelect.addEventListener("change", () => {
+    const val = studentSubjectSelect.value;
+    if (!val) {
+      selectedSubject = null;
+      updateSelectedSubjectDisplay(null);
+      return;
+    }
+
+    const found = currentFilteredSubjects.find(s => (s.id || s.code) === val);
+    if (found) {
+      selectedSubject = found;
+      updateSelectedSubjectDisplay(found);
+      hideScanValidation();
+    }
   });
 }
 
@@ -550,7 +611,15 @@ async function onScanSuccess(decodedText) {
 
   // If student didn't select subject but QR specifies it, adopt it
   if (!selectedSubject && qrData.subjectCode) {
-    selectedSubject = { code: qrData.subjectCode, name: qrData.subjectName || qrData.subjectCode };
+    const matchedSub = currentFilteredSubjects.find(s => s.code === qrData.subjectCode);
+    if (matchedSub) {
+      selectedSubject = matchedSub;
+      if (studentSubjectSelect) studentSubjectSelect.value = matchedSub.id || matchedSub.code;
+      updateSelectedSubjectDisplay(matchedSub);
+    } else {
+      selectedSubject = { code: qrData.subjectCode, name: qrData.subjectName || qrData.subjectCode };
+      updateSelectedSubjectDisplay(selectedSubject);
+    }
   }
 
   // Anti-Cheat: Validate dynamic QR timestamp (valid for 45s)

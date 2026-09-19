@@ -177,23 +177,44 @@
         </button>
       </div>
 
-      <!-- Step 1: Select Subject -->
+      <!-- Subject Selection Section -->
       <div class="glass-card">
         <div class="flex-between mb-2">
-          <h2 class="cyber-font glow-cyan" style="font-size: 1.15rem;">1. เลือกวิชาเรียน</h2>
+          <h2 class="cyber-font glow-cyan" style="font-size: 1.15rem;">เลือกวิชาเรียน</h2>
           <span class="badge-status badge-ontime" id="selected-subject-badge">โปรดเลือกวิชา</span>
         </div>
-        <p class="text-muted mb-2" style="font-size: 0.85rem;">แตะเลือกวิชาที่ต้องการเช็คชื่อเข้าเรียนในวันนี้</p>
+        <p class="text-muted mb-2" style="font-size: 0.85rem;">เลือกวิชาที่ต้องการเช็คชื่อเข้าเรียนในวันนี้จากรายการด้านล่าง</p>
         
-        <div class="subject-grid" id="subject-grid-container">
-          <!-- Dynamic or preconfigured subject cards rendered via app.js -->
+        <div class="form-group" style="margin-bottom: 0.75rem;">
+          <select id="student-subject-select" class="input-cyber" style="font-size: 0.95rem; font-weight: 600; padding: 0.75rem 1rem; cursor: pointer;">
+            <option value="">-- กำลังโหลดรายวิชา... --</option>
+          </select>
+        </div>
+
+        <!-- Selected Subject Summary Card (shown when subject is selected) -->
+        <div id="selected-subject-detail" class="hidden" style="padding: 0.85rem 1rem; background: var(--sky-50); border: 1.5px solid var(--sky-200); border-radius: var(--radius-md); transition: var(--transition);">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; flex-wrap: wrap;">
+            <div>
+              <div id="detail-subject-code" style="font-family: 'Orbitron', sans-serif; font-weight: 700; color: var(--sky-600); font-size: 1.1rem;">-</div>
+              <div id="detail-subject-name" style="font-weight: 600; font-size: 0.95rem; color: var(--text-main); margin-top: 0.15rem;">-</div>
+            </div>
+            <div id="detail-subject-target" class="badge-status badge-ontime" style="font-size: 0.75rem;">-</div>
+          </div>
+          <div style="display: flex; gap: 1.25rem; margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-muted); flex-wrap: wrap;">
+            <div>⏰ เวลาเริ่มเรียน: <strong id="detail-subject-time" style="color: var(--neon-cyan);">-</strong></div>
+            <div>📍 ห้องเรียน: <strong id="detail-subject-room" style="color: var(--text-main);">-</strong></div>
+          </div>
+        </div>
+
+        <!-- Empty notice container -->
+        <div id="subject-empty-notice" class="hidden" style="text-align: center; padding: 2rem 1rem; background: var(--bg-card); border-radius: 12px; border: 1.5px dashed var(--glass-border); margin-top: 0.75rem;">
         </div>
       </div>
 
-      <!-- Step 2: Scanner Box -->
+      <!-- Scanner Box -->
       <div class="glass-card scanner-container" id="scanner-card">
         <div class="text-center mb-2">
-          <h2 class="cyber-font glow-pink" style="font-size: 1.15rem;">2. สแกนคิวอาร์โค้ด</h2>
+          <h2 class="cyber-font glow-pink" style="font-size: 1.15rem;">สแกนคิวอาร์โค้ด</h2>
           <p class="text-muted" style="font-size: 0.85rem;">สแกนคิวอาร์โค้ดบนจอของอาจารย์เพื่อบันทึกเวลา</p>
         </div>
 
