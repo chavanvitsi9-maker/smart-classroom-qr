@@ -132,6 +132,12 @@
                 formSt.classList.add('hidden');
                 if (alertBox) alertBox.className = 'hidden';
               };
+
+              // ตรวจจับพารามิเตอร์ URL ?tab=teacher เพื่อสลับแท็บครูให้อัตโนมัติ
+              const urlParams = new URLSearchParams(window.location.search);
+              if (urlParams.get('tab') === 'teacher') {
+                tabTc.click();
+              }
             }
           })();
         </script>

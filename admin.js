@@ -121,8 +121,8 @@ const editNoteInput = document.getElementById("edit-note-input");
 // ----------------------------------------------------------------------------
 onAuthStateChanged(auth, (user) => {
   if (!user || !isTeacherUser(user)) {
-    console.warn("Unauthorized access attempt. Redirecting to index.html...");
-    window.location.replace("index.html");
+    console.warn("Unauthorized access attempt. Redirecting to index.html?tab=teacher...");
+    window.location.replace("index.html?tab=teacher");
     return;
   }
 
