@@ -14,6 +14,7 @@ import {
   ref,
   set,
   get,
+  push,
   update,
   remove,
   onValue
@@ -408,7 +409,8 @@ function generateDynamicQr() {
 
   const selectedOpt = qrSubjectSelect.selectedOptions[0];
   if (!selectedOpt) return;
-  const subjectCode = selectedOpt.value;
+  const subjectCode = selectedOpt.dataset.code || selectedOpt.value;
+  const targetGrade = selectedOpt.dataset.target || "";
   const timeVal = qrStartTime.value || "09:00";
 
   // Build Start Time ISO for Today
@@ -416,15 +418,22 @@ function generateDynamicQr() {
   const [hh, mm] = timeVal.split(":");
   const startTimeDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), parseInt(hh, 10), parseInt(mm, 10), 0, 0);
 
-  // Anti-Cheat Payload: 100% clean ASCII (prevents Unicode overflow in QRCode.js)
+  // Anti-Cheat Payload: include targetGrade if available
   const payload = {
     subjectCode: subjectCode,
+    targetGrade: targetGrade,
     startTime: startTimeDate.toISOString(),
     timestamp: Date.now(),
     nonce: Math.random().toString(36).substring(2, 10)
   };
 
   const payloadString = JSON.stringify(payload);
+  let safeQrString = payloadString;
+  try {
+    safeQrString = unescape(encodeURIComponent(payloadString));
+  } catch (e) {
+    safeQrString = payloadString;
+  }
 
   // Clear previous QR code canvas/image
   qrcodeElement.innerHTML = "";
@@ -432,7 +441,7 @@ function generateDynamicQr() {
   try {
     if (typeof QRCode !== "undefined") {
       qrCodeInstance = new QRCode(qrcodeElement, {
-        text: payloadString,
+        text: safeQrString,
         width: 256,
         height: 256,
         colorDark: "#121218",
@@ -671,9 +680,12 @@ function initSubjectListener() {
       return;
     }
 
-    const data = snapshot.val();
-    allSubjects = Object.values(data);
-    allSubjects.sort((a, b) => a.code.localeCompare(b.code));
+    const data = snapshot.val() || {};
+    allSubjects = Object.entries(data).map(([key, val]) => ({
+      id: key,
+      ...val
+    }));
+    allSubjects.sort((a, b) => (a.code || "").localeCompare(b.code || "") || (a.targetGrade || "").localeCompare(b.targetGrade || ""));
 
     renderSubjectRoster();
     updateSubjectDropdowns();
@@ -704,6 +716,7 @@ function renderSubjectRoster() {
 
   subjectRosterTbody.innerHTML = filtered.map(subject => {
     const targetDisplay = subject.targetGrade ? subject.targetGrade : "ทุกชั้นเรียน";
+    const subId = subject.id || subject.code;
     return `
       <tr>
         <td><strong style="color: var(--neon-cyan);">${subject.code}</strong></td>
@@ -712,10 +725,10 @@ function renderSubjectRoster() {
         <td><span class="badge-status badge-ontime" style="font-size: 0.75rem;">⏰ ${subject.defaultStartTime || '09:00'} น.</span></td>
         <td style="color: var(--text-muted); font-size: 0.85rem;">${subject.room || '-'}</td>
         <td style="text-align: center; white-space: nowrap;">
-          <button type="button" class="btn-cyber btn-secondary btn-edit-subject" data-code="${subject.code}" style="width: auto; padding: 0.25rem 0.6rem; font-size: 0.75rem; color: var(--neon-cyan); margin-right: 0.35rem;">
+          <button type="button" class="btn-cyber btn-secondary btn-edit-subject" data-id="${subId}" style="width: auto; padding: 0.25rem 0.6rem; font-size: 0.75rem; color: var(--neon-cyan); margin-right: 0.35rem;">
             ✏️ แก้ไข
           </button>
-          <button type="button" class="btn-cyber btn-secondary btn-delete-subject" data-code="${subject.code}" style="width: auto; padding: 0.25rem 0.6rem; font-size: 0.75rem; color: var(--neon-red);">
+          <button type="button" class="btn-cyber btn-secondary btn-delete-subject" data-id="${subId}" style="width: auto; padding: 0.25rem 0.6rem; font-size: 0.75rem; color: var(--neon-red);">
             🗑️ ลบ
           </button>
         </td>
@@ -727,8 +740,8 @@ function renderSubjectRoster() {
   document.querySelectorAll(".btn-edit-subject").forEach(btn => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      const code = btn.dataset.code;
-      const subj = allSubjects.find(s => s.code === code);
+      const id = btn.dataset.id;
+      const subj = allSubjects.find(s => (s.id || s.code) === id);
       if (subj) openEditSubjectModal(subj);
     });
   });
@@ -737,12 +750,14 @@ function renderSubjectRoster() {
   document.querySelectorAll(".btn-delete-subject").forEach(btn => {
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
-      const code = btn.dataset.code;
-      const subj = allSubjects.find(s => s.code === code);
-      const name = subj ? subj.name : code;
-      if (confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบวิชา "${code} - ${name}" ออกจากระบบ?`)) {
+      const id = btn.dataset.id;
+      const subj = allSubjects.find(s => (s.id || s.code) === id);
+      const code = subj ? subj.code : id;
+      const name = subj ? subj.name : "";
+      const target = subj && subj.targetGrade ? ` (ชั้น ${subj.targetGrade})` : "";
+      if (confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบวิชา "${code} - ${name}${target}" ออกจากระบบ?`)) {
         try {
-          await remove(ref(db, `subjects/${code}`));
+          await remove(ref(db, `subjects/${id}`));
         } catch (err) {
           alert("ไม่สามารถลบรายวิชาได้: " + err.message);
         }
@@ -761,24 +776,31 @@ function updateSubjectDropdowns() {
 
   // 1. Update QR Subject Selector
   qrSubjectSelect.innerHTML = allSubjects.map(s => {
+    const subId = s.id || s.code;
     const targetLabel = s.targetGrade ? `(ชั้น ${s.targetGrade})` : "(ทุกชั้นเรียน)";
-    return `<option value="${s.code}" data-name="${s.name}" data-time="${s.defaultStartTime || '09:00'}">${s.code} - ${s.name} ${targetLabel}</option>`;
+    return `<option value="${subId}" data-code="${s.code}" data-name="${s.name}" data-target="${s.targetGrade || ''}" data-time="${s.defaultStartTime || '09:00'}">${s.code} - ${s.name} ${targetLabel}</option>`;
   }).join("");
 
-  if (currentQrVal && allSubjects.some(s => s.code === currentQrVal)) {
+  if (currentQrVal && allSubjects.some(s => (s.id || s.code) === currentQrVal)) {
     qrSubjectSelect.value = currentQrVal;
   } else if (allSubjects.length > 0) {
-    qrSubjectSelect.value = allSubjects[0].code;
+    qrSubjectSelect.value = allSubjects[0].id || allSubjects[0].code;
     qrStartTime.value = allSubjects[0].defaultStartTime || "09:00";
   }
 
   // 2. Update Attendance Filter Dropdown
   if (filterSubject) {
     let filterOpts = `<option value="ALL">ทุกวิชา</option>`;
-    filterOpts += allSubjects.map(s => `<option value="${s.code}">${s.code} - ${s.name}</option>`).join("");
+    const seen = new Set();
+    allSubjects.forEach(s => {
+      if (s.code && !seen.has(s.code)) {
+        seen.add(s.code);
+        filterOpts += `<option value="${s.code}">${s.code} - ${s.name}</option>`;
+      }
+    });
     filterSubject.innerHTML = filterOpts;
 
-    if (currentFilterVal && (currentFilterVal === "ALL" || allSubjects.some(s => s.code === currentFilterVal))) {
+    if (currentFilterVal && (currentFilterVal === "ALL" || seen.has(currentFilterVal))) {
       filterSubject.value = currentFilterVal;
     }
   }
@@ -801,11 +823,39 @@ if (createSubjectForm) {
       return;
     }
 
+    // Duplicate Check: Check if exact same subject code AND target grade/room already exists
+    const normCode = code.toUpperCase();
+    const normTarget = targetGrade.toLowerCase();
+
+    const existingDuplicate = allSubjects.find(s => {
+      const sCode = (s.code || "").trim().toUpperCase();
+      const sTarget = (s.targetGrade || "").trim().toLowerCase();
+      return sCode === normCode && sTarget === normTarget;
+    });
+
+    if (existingDuplicate) {
+      const targetDisplay = targetGrade ? `สำหรับระดับชั้น "${targetGrade}"` : "(สำหรับทุกชั้นเรียน)";
+      const warnMsg = `⚠️ ไม่สามารถบันทึกได้ เนื่องจากมีรายวิชา "${code}" ${targetDisplay} อยู่ในระบบแล้ว!\n\nระบบป้องกันไม่ให้เขียนข้อมูลทับ หากต้องการแก้ไขข้อมูลหรือเปลี่ยนเวลาเรียน กรุณาใช้ปุ่ม "✏️ แก้ไข" ในตารางรายวิชา`;
+      alert(warnMsg);
+
+      if (subjectCreationAlert) {
+        subjectCreationAlert.className = "result-box badge-absent";
+        subjectCreationAlert.innerHTML = `⚠️ <strong>พบข้อมูลซ้ำ:</strong> รหัสวิชา <strong>${code}</strong> ${targetDisplay} มีอยู่ในระบบแล้ว ไม่สามารถบันทึกซ้ำได้ หากต้องการแก้ไขโปรดกดปุ่ม <strong>แก้ไข</strong> ในตาราง`;
+        subjectCreationAlert.style.display = "block";
+      }
+      return;
+    }
+
     btnSaveSubject.disabled = true;
     btnSaveSubject.innerHTML = `<span>⏳</span> กำลังบันทึก...`;
 
     try {
-      await set(ref(db, `subjects/${code}`), {
+      // Create new unique reference under subjects so multiple classes with the same subject code never overwrite
+      const newSubRef = push(ref(db, "subjects"));
+      const newSubId = newSubRef.key;
+
+      await set(newSubRef, {
+        id: newSubId,
         code: code,
         name: name,
         targetGrade: targetGrade,
@@ -839,7 +889,7 @@ if (createSubjectForm) {
 
 // Edit Subject Modal Handlers
 function openEditSubjectModal(subject) {
-  editSubjectCodeHidden.value = subject.code;
+  editSubjectCodeHidden.value = subject.id || subject.code;
   editSubjectCodeDisplay.textContent = subject.code;
   editSubjectNameInput.value = subject.name || "";
   if (editSubjectTargetInput) editSubjectTargetInput.value = subject.targetGrade || "";
@@ -860,20 +910,40 @@ if (btnCancelEditSubject) btnCancelEditSubject.addEventListener("click", closeEd
 if (editSubjectForm) {
   editSubjectForm.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const code = editSubjectCodeHidden.value;
+    const subjectId = editSubjectCodeHidden.value;
     const name = editSubjectNameInput.value.trim();
     const targetGrade = editSubjectTargetInput ? editSubjectTargetInput.value.trim() : "";
     const startTime = editSubjectTimeInput.value || "09:00";
     const room = editSubjectRoomInput.value.trim();
 
-    if (!code || !name) return;
+    if (!subjectId || !name) return;
+
+    const currentSub = allSubjects.find(s => (s.id || s.code) === subjectId);
+    const code = currentSub ? currentSub.code : subjectId;
+
+    // Check collision if targetGrade was modified to collide with another entry
+    const normCode = (code || "").trim().toUpperCase();
+    const normTarget = targetGrade.trim().toLowerCase();
+
+    const editCollision = allSubjects.find(s => {
+      const sId = s.id || s.code;
+      if (sId === subjectId) return false;
+      const sCode = (s.code || "").trim().toUpperCase();
+      const sTarget = (s.targetGrade || "").trim().toLowerCase();
+      return sCode === normCode && sTarget === normTarget;
+    });
+
+    if (editCollision) {
+      alert(`⚠️ ไม่สามารถแก้ไขได้: มีรายวิชา "${code}" สำหรับระดับชั้น "${targetGrade || 'ทุกชั้นเรียน'}" อยู่ในระบบแล้ว`);
+      return;
+    }
 
     const btnConfirm = document.getElementById("btn-confirm-edit-subject");
     btnConfirm.disabled = true;
     btnConfirm.textContent = "กำลังบันทึก...";
 
     try {
-      await update(ref(db, `subjects/${code}`), {
+      await update(ref(db, `subjects/${subjectId}`), {
         name: name,
         targetGrade: targetGrade,
         defaultStartTime: startTime,

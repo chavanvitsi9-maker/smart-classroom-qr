@@ -328,16 +328,13 @@ restoreStudentSessionIfAny();
 // ----------------------------------------------------------------------------
 // 6. Subject Selection Grid (Filtered by Student's Grade/Class)
 // ----------------------------------------------------------------------------
-function isSubjectForStudent(subject, studentProfile) {
-  const target = (subject.targetGrade || subject.targetRoom || "").trim();
-  // If target is blank, "-", "ทั้งหมด", "ทุกชั้น", "ทุกชั้นเรียน" -> available to everyone
+function isTargetGradeMatch(target, studentProfile) {
   if (!target || target === "-" || target === "ทั้งหมด" || target === "ทุกชั้น" || target === "ทุกชั้นเรียน" || target.toLowerCase() === "all") {
     return true;
   }
   
   const studentRoom = (studentProfile?.gradeGroup || studentProfile?.room || "").trim();
   if (!studentRoom) {
-    // If student has no room registered, show all
     return true;
   }
 
@@ -353,17 +350,25 @@ function isSubjectForStudent(subject, studentProfile) {
   });
 }
 
+function isSubjectForStudent(subject, studentProfile) {
+  const target = (subject.targetGrade || subject.targetRoom || "").trim();
+  return isTargetGradeMatch(target, studentProfile);
+}
+
 function listenToSubjects() {
   const subjectsRef = ref(db, "subjects");
   onValue(subjectsRef, (snapshot) => {
     let list = [];
     if (snapshot.exists()) {
       const data = snapshot.val();
-      list = Object.values(data);
+      list = Object.entries(data).map(([key, val]) => ({
+        id: key,
+        ...val
+      }));
     } else {
       list = [...DEFAULT_SUBJECTS];
     }
-    list.sort((a, b) => a.code.localeCompare(b.code));
+    list.sort((a, b) => (a.code || "").localeCompare(b.code || ""));
 
     // Filter: Only subjects matching this student's grade/class
     const filtered = list.filter(s => isSubjectForStudent(s, currentStudentProfile));
@@ -396,11 +401,13 @@ function renderSubjectCards(subjects) {
   subjects.forEach(subject => {
     const card = document.createElement("div");
     card.className = "subject-card";
-    if (selectedSubject && selectedSubject.code === subject.code) {
+    const subIdentifier = subject.id || subject.code;
+    if (selectedSubject && (selectedSubject.id ? selectedSubject.id === subject.id : selectedSubject.code === subject.code)) {
       card.classList.add("selected");
       selectedSubject = subject; // Update with latest info
       selectedSubjectBadge.textContent = `${subject.code}: ${subject.name}`;
     }
+    card.dataset.id = subIdentifier;
     card.dataset.code = subject.code;
     const targetLabel = subject.targetGrade ? `ชั้น ${subject.targetGrade}` : "ทุกชั้นเรียน";
     card.innerHTML = `
@@ -530,6 +537,17 @@ async function onScanSuccess(decodedText) {
     return;
   }
 
+  // Validate QR Target Grade if specified in QR payload
+  if (qrData.targetGrade && !isTargetGradeMatch(qrData.targetGrade, currentStudentProfile)) {
+    const myRoom = currentStudentProfile?.gradeGroup || currentStudentProfile?.room || "-";
+    playCuteChime("error");
+    showScanValidation(
+      `คิวอาร์โค้ดนี้สำหรับนักเรียนห้อง ${qrData.targetGrade} เท่านั้น (ห้องของคุณ: ${myRoom})`,
+      "Absent"
+    );
+    return;
+  }
+
   // If student didn't select subject but QR specifies it, adopt it
   if (!selectedSubject && qrData.subjectCode) {
     selectedSubject = { code: qrData.subjectCode, name: qrData.subjectName || qrData.subjectCode };
@@ -611,6 +629,7 @@ async function onScanSuccess(decodedText) {
       id: attendanceRecordKey,
       studentId: currentStudentId,
       studentName: currentStudentProfile?.fullName || currentStudentId,
+      studentRoom: currentStudentProfile?.gradeGroup || currentStudentProfile?.room || "",
       subjectCode: subjectCode,
       subjectName: selectedSubject?.name || subjectCode,
       scanTime: now.toISOString(),
