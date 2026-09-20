@@ -6,9 +6,14 @@
   <title>ระบบสำหรับครูผู้สอน - เช็คชื่อนักเรียน</title>
 
   <!-- PWA Meta Tags -->
-  <meta name="theme-color" content="#f0f7ff">
+  <meta name="theme-color" content="#000000">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="assets/chibi-placeholder.png">
+
+  <!-- Google Fonts: Space Odyssey font suite (Orbitron, Chakra Petch, Rajdhani, Prompt, Inter) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:ital,wght@0,300;0,400;0,600;0,700;1,400;1,700&family=Inter:wght@400;500;600;700&family=Orbitron:wght@500;600;700;800;900&family=Prompt:wght@300;400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
 
   <!-- Stylesheet -->
   <link rel="stylesheet" href="style.css">
@@ -22,6 +27,19 @@
   </script>
 </head>
 <body>
+
+  <!-- Interactive Starfield & Hyperspace Canvas -->
+  <canvas id="spaceCanvas"></canvas>
+
+  <!-- Sci-Fi Arcade CRT Scanline Overlay -->
+  <div class="crt-scanlines"></div>
+
+  <!-- High-Tech Aerospace Hex Grid -->
+  <div class="hex-grid-overlay"></div>
+
+  <!-- Ambient Glowing Nebula Blobs -->
+  <div class="ambient-glow glow-1"></div>
+  <div class="ambient-glow glow-2"></div>
 
   <div class="app-container" id="admin-container">
 
@@ -520,5 +538,61 @@
   <!-- Admin Application Logic (ES6 Module) -->
   <script type="module" src="admin.js"></script>
 
+  <!-- Interactive Hyperspace Canvas Starfield Script -->
+  <script>
+    (function() {
+      const canvas = document.getElementById('spaceCanvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      let stars = [];
+      let numStars = 120;
+
+      function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        initStars();
+      }
+
+      function initStars() {
+        stars = [];
+        for (let i = 0; i < numStars; i++) {
+          stars.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            size: Math.random() * 2 + 0.5,
+            speed: Math.random() * 0.6 + 0.2,
+            brightness: Math.random()
+          });
+        }
+      }
+
+      function drawStars() {
+        if (!canvas || !ctx) return;
+        const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (let star of stars) {
+          if (!prefersReducedMotion) {
+            star.y -= star.speed;
+            if (star.y < 0) {
+              star.y = canvas.height;
+              star.x = Math.random() * canvas.width;
+            }
+          }
+          const alpha = prefersReducedMotion ? 0.4 : (0.4 + Math.sin(Date.now() * 0.003 + star.x) * 0.3);
+          ctx.fillStyle = `rgba(0, 229, 255, ${alpha})`;
+          ctx.beginPath();
+          ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        if (!prefersReducedMotion) {
+          requestAnimationFrame(drawStars);
+        }
+      }
+
+      window.addEventListener('resize', resizeCanvas);
+      resizeCanvas();
+      requestAnimationFrame(drawStars);
+    })();
+  </script>
 </body>
 </html>
