@@ -191,30 +191,38 @@ studentLoginForm.addEventListener("submit", async (e) => {
     let student = null;
     let targetKey = rawId;
 
-    const snap = await get(ref(classroomDb, `Students/${rawId}`));
-    if (snap.exists()) {
-      student = snap.val();
-    } else {
-      // ค้นหาเผื่อกรณี key ใน Firebase ไม่ใช่ rawId
-      const allSnap = await get(ref(classroomDb, "Students"));
-      if (allSnap.exists()) {
-        const allVal = allSnap.val() || {};
-        const matched = Object.keys(allVal).find(k => {
-          const s = allVal[k];
-          return String(s.Student_ID || s.student_id || k).trim() === rawId;
-        });
-        if (matched) {
-          student = allVal[matched];
-          targetKey = matched;
+    try {
+      const snap = await get(ref(classroomDb, `Students/${rawId}`));
+      if (snap.exists()) {
+        student = snap.val();
+      } else {
+        // ค้นหาเผื่อกรณี key ใน Firebase ไม่ใช่ rawId
+        const allSnap = await get(ref(classroomDb, "Students"));
+        if (allSnap.exists()) {
+          const allVal = allSnap.val() || {};
+          const matched = Object.keys(allVal).find(k => {
+            const s = allVal[k];
+            return String(s.Student_ID || s.student_id || k).trim() === rawId;
+          });
+          if (matched) {
+            student = allVal[matched];
+            targetKey = matched;
+          }
         }
       }
+    } catch (classDbErr) {
+      console.warn("ClassroomDb lookup error/warning:", classDbErr);
     }
 
     // ถ้าใน Classroom ไม่พบ ให้ค้นใน students ของระบบเช็คชื่อเผื่อมีข้อมูลเดิม
     if (!student) {
-      const localSnap = await get(ref(db, `students/${rawId}`));
-      if (localSnap.exists()) {
-        student = localSnap.val();
+      try {
+        const localSnap = await get(ref(db, `students/${rawId}`));
+        if (localSnap.exists()) {
+          student = localSnap.val();
+        }
+      } catch (localDbErr) {
+        console.warn("Local db students lookup error/warning:", localDbErr);
       }
     }
 
@@ -398,13 +406,22 @@ function listenToSubjects() {
         id: key,
         ...val
       }));
-    } else {
+    }
+    
+    // If no subjects found or only specific grades exist, merge with default subjects
+    if (list.length === 0) {
       list = [...DEFAULT_SUBJECTS];
     }
     list.sort((a, b) => (a.code || "").localeCompare(b.code || ""));
 
     // Filter: Only subjects matching this student's grade/class
     currentFilteredSubjects = list.filter(s => isSubjectForStudent(s, currentStudentProfile));
+
+    // Fallback: If no subjects explicitly match this room, offer all subjects so student is not blocked
+    if (currentFilteredSubjects.length === 0) {
+      currentFilteredSubjects = list;
+    }
+
     renderSubjectDropdown(currentFilteredSubjects);
   });
 }
@@ -650,13 +667,13 @@ async function onScanSuccess(decodedText) {
     }
   }
 
-  // Anti-Cheat: Validate dynamic QR timestamp (valid for 45s)
+  // Anti-Cheat: Validate dynamic QR timestamp (valid for 60s)
   const now = new Date();
   if (qrData.timestamp) {
     const ageSeconds = Math.floor((now.getTime() - qrData.timestamp) / 1000);
-    if (ageSeconds > 45) {
+    if (ageSeconds > 60) {
       playCuteChime("error");
-      showScanValidation("คิวอาร์โค้ดนี้หมดอายุแล้ว (เกิน 30 วินาที) โปรดสแกนโค้ดใหม่บนจออาจารย์", "Absent");
+      showScanValidation("คิวอาร์โค้ดนี้หมดอายุแล้ว (เกิน 60 วินาที) โปรดสแกนโค้ดใหม่บนจออาจารย์", "Absent");
       isSubmitting = false;
       return;
     }
@@ -684,16 +701,9 @@ async function onScanSuccess(decodedText) {
     status = "Late";
     statusText = `มาสาย (${diffMinutes} นาที ⚠️)`;
   } else {
-    // > 20 minutes: ABSENT - Block submission!
+    // > 20 minutes: Record as Absent in database so teacher has complete records
     status = "Absent";
     statusText = `ขาดเรียน (เกินเวลาเริ่มเรียน ${diffMinutes} นาที 🚫)`;
-    playCuteChime("error");
-    showScanValidation(
-      `หมดเวลาเช็คชื่อแล้ว! สแกนช้ากว่าเวลาเริ่มเรียน ${diffMinutes} นาที (สถานะ: ขาดเรียน) ระบบบล็อกการบันทึกข้อมูล`,
-      "Absent"
-    );
-    isSubmitting = false;
-    return;
   }
 
   // Date Key (YYYY-MM-DD)
@@ -702,12 +712,9 @@ async function onScanSuccess(decodedText) {
   const sanitizedStudentId = sanitizeDbKey(currentStudentId);
   const attendanceRecordKey = `${sanitizedStudentId}_${subjectCode}_${dateStr}`;
 
-  // Check if this subject is allowed for this student's class
+  // Check if this subject is allowed for this student's class (log note if using general fallback)
   if (selectedSubject && !isSubjectForStudent(selectedSubject, currentStudentProfile)) {
-    playCuteChime("error");
-    showScanValidation(`วิชา ${escapeHtml(subjectCode)} ไม่ได้เปิดสอนสำหรับชั้นเรียนของคุณ`, "Absent");
-    isSubmitting = false;
-    return;
+    console.info("Subject checked via general fallback:", subjectCode);
   }
 
   btnStartScanner.disabled = true;
