@@ -50,8 +50,10 @@
           <p>บันทึกเวลาเรียนอัจฉริยะแบบเรียลไทม์</p>
         </div>
       </div>
-      <div class="header-badge" id="system-status-badge">
-        <span class="glow-cyan">●</span> พร้อมใช้งาน
+      <div class="header-right-actions">
+        <a href="../Smart-Classroom/index.html" class="btn-cyber btn-yellow" style="text-decoration: none; padding: 0.52rem 1.2rem; font-size: 0.95rem; display: inline-flex; align-items: center; gap: 7px; border-radius: 12px; font-weight: 800; white-space: nowrap;" title="กลับไปยังหน้าหลักห้องเรียน Smart Classroom">
+          <span style="font-size: 1.1rem;">🚀</span> เข้าห้องเรียน
+        </a>
       </div>
     </header>
 
@@ -190,9 +192,14 @@
           <div style="font-weight: 700; font-size: 1.05rem;" id="student-display-name">รหัสนักศึกษา: -</div>
           <div style="font-size: 0.85rem; color: var(--sky-500); margin-top: 0.2rem; font-weight: 600;" id="student-display-room">ชั้นเรียน: -</div>
         </div>
-        <button type="button" class="btn-cyber btn-secondary" id="btn-logout" style="width: auto; padding: 0.4rem 0.9rem; font-size: 0.85rem;">
-          🚪 ออกจากระบบ
-        </button>
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+          <a href="../Smart-Classroom/dashboard.html" class="btn-cyber btn-cyan" style="text-decoration: none; width: auto; padding: 0.35rem 0.8rem; font-size: 0.82rem; display: inline-flex; align-items: center; gap: 5px; border-radius: var(--radius-sm); font-weight: 700; white-space: nowrap;" title="กลับไปยังแดชบอร์ดห้องเรียนนักเรียน">
+            <span>🚀</span> แดชบอร์ดห้องเรียน
+          </a>
+          <button type="button" class="btn-cyber btn-secondary" id="btn-logout" style="width: auto; padding: 0.35rem 0.8rem; font-size: 0.82rem; white-space: nowrap;">
+            🚪 ออกจากระบบ
+          </button>
+        </div>
       </div>
 
       <!-- Subject Selection Section -->
