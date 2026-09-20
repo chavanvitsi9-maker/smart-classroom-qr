@@ -1,17 +1,17 @@
 {
   "rules": {
     "attendance": {
-      ".read": true,
-      ".write": true,
+      ".read": "auth != null",
+      ".write": "auth != null",
       ".indexOn": ["date", "studentId", "subjectCode"]
     },
     "students": {
-      ".read": true,
+      ".read": "auth != null",
       ".write": "auth != null",
       ".indexOn": ["studentId"]
     },
     "subjects": {
-      ".read": true,
+      ".read": "auth != null",
       ".write": "auth != null"
     }
   }

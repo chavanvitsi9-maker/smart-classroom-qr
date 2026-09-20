@@ -20,6 +20,30 @@ import {
   onValue
 } from "./firebase-init.js";
 
+// Security & Utility Helpers
+function escapeHtml(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function sanitizeDbKey(key) {
+  if (!key) return "";
+  return String(key).trim().replace(/[.#$\[\]\/]/g, "_");
+}
+
+function debounce(fn, delay = 250) {
+  let timer = null;
+  return function(...args) {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn.apply(this, args), delay);
+  };
+}
+
 // State
 let currentTeacher = null;
 let allTodayRecords = [];
@@ -243,22 +267,22 @@ function renderAttendanceTable() {
 
     if (record.status === "Late") {
       badgeClass = "badge-late";
-      statusDisplay = `มาสาย (${record.minutesLate || 0} นาที)`;
+      statusDisplay = `มาสาย (${escapeHtml(record.minutesLate || 0)} นาที)`;
     } else if (record.status === "Absent") {
       badgeClass = "badge-absent";
       statusDisplay = "ขาดเรียน";
     }
 
     return `
-      <tr data-id="${record.id}">
-        <td><strong>${record.studentId}</strong></td>
-        <td>${record.studentName || '-'}</td>
-        <td><span style="color: var(--neon-cyan); font-weight: 600;">${record.subjectCode}</span></td>
-        <td>${scanTimeFormatted} น.</td>
-        <td>${record.minutesLate ? `+${record.minutesLate} นาที` : '-'}</td>
+      <tr data-id="${escapeHtml(record.id)}">
+        <td><strong>${escapeHtml(record.studentId)}</strong></td>
+        <td>${escapeHtml(record.studentName || '-')}</td>
+        <td><span style="color: var(--neon-cyan); font-weight: 600;">${escapeHtml(record.subjectCode)}</span></td>
+        <td>${escapeHtml(scanTimeFormatted)} น.</td>
+        <td>${record.minutesLate ? `+${escapeHtml(record.minutesLate)} นาที` : '-'}</td>
         <td><span class="badge-status ${badgeClass}">${statusDisplay}</span></td>
         <td style="text-align: center;">
-          <button type="button" class="btn-cyber btn-secondary btn-edit-row" data-id="${record.id}" style="width: auto; padding: 0.25rem 0.6rem; font-size: 0.8rem;">
+          <button type="button" class="btn-cyber btn-secondary btn-edit-row" data-id="${escapeHtml(record.id)}" style="width: auto; padding: 0.25rem 0.6rem; font-size: 0.8rem;">
             ✏️ แก้ไข
           </button>
         </td>
@@ -287,8 +311,8 @@ function renderAttendanceTable() {
   });
 }
 
-// Filter listeners
-filterSearch.addEventListener("input", renderAttendanceTable);
+// Filter listeners with debounce for performance
+filterSearch.addEventListener("input", debounce(renderAttendanceTable, 200));
 filterSubject.addEventListener("change", renderAttendanceTable);
 filterStatus.addEventListener("change", renderAttendanceTable);
 
@@ -482,13 +506,20 @@ createStudentForm.addEventListener("submit", async (e) => {
     return;
   }
 
+  // Prevent path injection/crash in Firebase path
+  const cleanStudentId = sanitizeDbKey(studentId);
+  if (cleanStudentId !== studentId || !cleanStudentId) {
+    alert("รหัสนักเรียนต้องไม่มีอักขระพิเศษ เช่น / . # $ [ ]");
+    return;
+  }
+
   btnSaveStudent.disabled = true;
   btnSaveStudent.innerHTML = `<span>⏳</span> กำลังบันทึกข้อมูล...`;
 
   try {
     // บันทึกไปยัง Classroom Database โดยตรง (ทั้งระบบห้องเรียนและเช็คชื่อใช้ร่วมกัน)
-    await set(ref(classroomDb, `Students/${studentId}`), {
-      Student_ID: studentId,
+    await set(ref(classroomDb, `Students/${cleanStudentId}`), {
+      Student_ID: cleanStudentId,
       Name_Surname: fullName,
       Room: gradeRoom,
       PIN: pin,
@@ -496,7 +527,7 @@ createStudentForm.addEventListener("submit", async (e) => {
     });
 
     studentCreationAlert.className = "result-box badge-ontime";
-    studentCreationAlert.innerHTML = `✅ บันทึกนักเรียน <strong>${fullName} (${studentId})</strong> สำเร็จ! รหัส PIN: <strong>${pin}</strong>`;
+    studentCreationAlert.innerHTML = `✅ บันทึกนักเรียน <strong>${escapeHtml(fullName)} (${escapeHtml(cleanStudentId)})</strong> สำเร็จ! รหัส PIN: <strong>${escapeHtml(pin)}</strong>`;
     studentCreationAlert.style.display = "block";
 
     createStudentForm.reset();
@@ -504,7 +535,7 @@ createStudentForm.addEventListener("submit", async (e) => {
   } catch (err) {
     console.error("Create student error:", err);
     studentCreationAlert.className = "result-box badge-absent";
-    studentCreationAlert.innerHTML = `❌ ไม่สามารถบันทึกข้อมูลได้: ${err.message}`;
+    studentCreationAlert.innerHTML = `❌ ไม่สามารถบันทึกข้อมูลได้: ${escapeHtml(err.message)}`;
     studentCreationAlert.style.display = "block";
   } finally {
     btnSaveStudent.disabled = false;
@@ -535,6 +566,11 @@ function initStudentRosterListener() {
     });
     allStudents.sort((a, b) => a.studentId.localeCompare(b.studentId));
     renderStudentRoster();
+  }, (error) => {
+    console.error("Student roster listener error:", error);
+    if (studentRosterTbody) {
+      studentRosterTbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted" style="color: var(--neon-red);">เกิดข้อผิดพลาดในการโหลดข้อมูลนักเรียน: ${escapeHtml(error.message)}</td></tr>`;
+    }
   });
 }
 
@@ -562,21 +598,38 @@ function renderStudentRoster() {
   studentRosterTbody.innerHTML = filtered.map(student => {
     return `
       <tr>
-        <td><strong>${student.studentId}</strong></td>
-        <td>${student.fullName}</td>
-        <td><span class="badge-status badge-ontime" style="font-size: 0.75rem;">${student.gradeGroup || '-'}</span></td>
-        <td><span class="badge-status badge-late" style="font-size: 0.85rem; font-family: monospace; letter-spacing: 1px;">🔑 ${student.pin}</span></td>
+        <td><strong>${escapeHtml(student.studentId)}</strong></td>
+        <td>${escapeHtml(student.fullName)}</td>
+        <td><span class="badge-status badge-ontime" style="font-size: 0.75rem;">${escapeHtml(student.gradeGroup || '-')}</span></td>
+        <td>
+          <span class="badge-status badge-late btn-toggle-pin" data-pin="${escapeHtml(student.pin)}" style="font-size: 0.82rem; font-family: monospace; letter-spacing: 1px; cursor: pointer;" title="แตะเพื่อแสดง/ซ่อน PIN">
+            🔑 ••••
+          </span>
+        </td>
         <td style="text-align: center; white-space: nowrap;">
-          <button type="button" class="btn-cyber btn-secondary btn-edit-student" data-id="${student.studentId}" style="width: auto; padding: 0.25rem 0.6rem; font-size: 0.75rem; color: var(--neon-cyan); margin-right: 0.35rem;">
+          <button type="button" class="btn-cyber btn-secondary btn-edit-student" data-id="${escapeHtml(student.studentId)}" style="width: auto; padding: 0.25rem 0.6rem; font-size: 0.75rem; color: var(--neon-cyan); margin-right: 0.35rem;">
             ✏️ แก้ไข
           </button>
-          <button type="button" class="btn-cyber btn-secondary btn-delete-student" data-id="${student.studentId}" style="width: auto; padding: 0.25rem 0.6rem; font-size: 0.75rem; color: var(--neon-red);">
+          <button type="button" class="btn-cyber btn-secondary btn-delete-student" data-id="${escapeHtml(student.studentId)}" style="width: auto; padding: 0.25rem 0.6rem; font-size: 0.75rem; color: var(--neon-red);">
             🗑️ ลบ
           </button>
         </td>
       </tr>
     `;
   }).join("");
+
+  // Attach PIN toggle listener for privacy
+  document.querySelectorAll(".btn-toggle-pin").forEach(badge => {
+    badge.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const realPin = badge.dataset.pin;
+      if (badge.textContent.includes("••••")) {
+        badge.textContent = `🔑 ${realPin}`;
+      } else {
+        badge.textContent = `🔑 ••••`;
+      }
+    });
+  });
 
   // Attach edit student listeners
   document.querySelectorAll(".btn-edit-student").forEach(btn => {
@@ -588,23 +641,27 @@ function renderStudentRoster() {
     });
   });
 
-  // Attach delete student listeners
+  // Attach delete student listeners with loading and double-click prevention
   document.querySelectorAll(".btn-delete-student").forEach(btn => {
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const id = btn.dataset.id;
       if (confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบข้อมูลนักเรียนรหัส ${id}? (ข้อมูลจะถูกลบทั้งจากระบบห้องเรียนและเช็คชื่อ)`)) {
+        btn.disabled = true;
+        btn.textContent = "กำลังลบ...";
         try {
           await remove(ref(classroomDb, `Students/${id}`));
         } catch (err) {
           alert("ไม่สามารถลบได้: " + err.message);
+          btn.disabled = false;
+          btn.textContent = "🗑️ ลบ";
         }
       }
     });
   });
 }
 
-searchRoster.addEventListener("input", renderStudentRoster);
+searchRoster.addEventListener("input", debounce(renderStudentRoster, 200));
 
 // ----------------------------------------------------------------------------
 // 7. EDIT STUDENT MODAL LOGIC
@@ -689,6 +746,11 @@ function initSubjectListener() {
 
     renderSubjectRoster();
     updateSubjectDropdowns();
+  }, (error) => {
+    console.error("Subject listener error:", error);
+    if (subjectRosterTbody) {
+      subjectRosterTbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted" style="color: var(--neon-red);">เกิดข้อผิดพลาดในการโหลดรายวิชา: ${escapeHtml(error.message)}</td></tr>`;
+    }
   });
 }
 
@@ -719,16 +781,16 @@ function renderSubjectRoster() {
     const subId = subject.id || subject.code;
     return `
       <tr>
-        <td><strong style="color: var(--neon-cyan);">${subject.code}</strong></td>
-        <td>${subject.name}</td>
-        <td><span class="badge-status badge-ontime" style="font-size: 0.75rem;">${targetDisplay}</span></td>
-        <td><span class="badge-status badge-ontime" style="font-size: 0.75rem;">⏰ ${subject.defaultStartTime || '09:00'} น.</span></td>
-        <td style="color: var(--text-muted); font-size: 0.85rem;">${subject.room || '-'}</td>
+        <td><strong style="color: var(--neon-cyan);">${escapeHtml(subject.code)}</strong></td>
+        <td>${escapeHtml(subject.name)}</td>
+        <td><span class="badge-status badge-ontime" style="font-size: 0.75rem;">${escapeHtml(targetDisplay)}</span></td>
+        <td><span class="badge-status badge-ontime" style="font-size: 0.75rem;">⏰ ${escapeHtml(subject.defaultStartTime || '09:00')} น.</span></td>
+        <td style="color: var(--text-muted); font-size: 0.85rem;">${escapeHtml(subject.room || '-')}</td>
         <td style="text-align: center; white-space: nowrap;">
-          <button type="button" class="btn-cyber btn-secondary btn-edit-subject" data-id="${subId}" style="width: auto; padding: 0.25rem 0.6rem; font-size: 0.75rem; color: var(--neon-cyan); margin-right: 0.35rem;">
+          <button type="button" class="btn-cyber btn-secondary btn-edit-subject" data-id="${escapeHtml(subId)}" style="width: auto; padding: 0.25rem 0.6rem; font-size: 0.75rem; color: var(--neon-cyan); margin-right: 0.35rem;">
             ✏️ แก้ไข
           </button>
-          <button type="button" class="btn-cyber btn-secondary btn-delete-subject" data-id="${subId}" style="width: auto; padding: 0.25rem 0.6rem; font-size: 0.75rem; color: var(--neon-red);">
+          <button type="button" class="btn-cyber btn-secondary btn-delete-subject" data-id="${escapeHtml(subId)}" style="width: auto; padding: 0.25rem 0.6rem; font-size: 0.75rem; color: var(--neon-red);">
             🗑️ ลบ
           </button>
         </td>
@@ -746,7 +808,7 @@ function renderSubjectRoster() {
     });
   });
 
-  // Attach Delete Subject Listeners
+  // Attach Delete Subject Listeners with loading and double-click prevention
   document.querySelectorAll(".btn-delete-subject").forEach(btn => {
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
@@ -756,17 +818,21 @@ function renderSubjectRoster() {
       const name = subj ? subj.name : "";
       const target = subj && subj.targetGrade ? ` (ชั้น ${subj.targetGrade})` : "";
       if (confirm(`คุณแน่ใจหรือไม่ว่าต้องการลบวิชา "${code} - ${name}${target}" ออกจากระบบ?`)) {
+        btn.disabled = true;
+        btn.textContent = "กำลังลบ...";
         try {
           await remove(ref(db, `subjects/${id}`));
         } catch (err) {
           alert("ไม่สามารถลบรายวิชาได้: " + err.message);
+          btn.disabled = false;
+          btn.textContent = "🗑️ ลบ";
         }
       }
     });
   });
 }
 
-if (searchSubjects) searchSubjects.addEventListener("input", renderSubjectRoster);
+if (searchSubjects) searchSubjects.addEventListener("input", debounce(renderSubjectRoster, 200));
 
 function updateSubjectDropdowns() {
   if (!qrSubjectSelect) return;
@@ -777,8 +843,8 @@ function updateSubjectDropdowns() {
   // 1. Update QR Subject Selector
   qrSubjectSelect.innerHTML = allSubjects.map(s => {
     const subId = s.id || s.code;
-    const targetLabel = s.targetGrade ? `(ชั้น ${s.targetGrade})` : "(ทุกชั้นเรียน)";
-    return `<option value="${subId}" data-code="${s.code}" data-name="${s.name}" data-target="${s.targetGrade || ''}" data-time="${s.defaultStartTime || '09:00'}">${s.code} - ${s.name} ${targetLabel}</option>`;
+    const targetLabel = s.targetGrade ? `(ชั้น ${escapeHtml(s.targetGrade)})` : "(ทุกชั้นเรียน)";
+    return `<option value="${escapeHtml(subId)}" data-code="${escapeHtml(s.code)}" data-name="${escapeHtml(s.name)}" data-target="${escapeHtml(s.targetGrade || '')}" data-time="${escapeHtml(s.defaultStartTime || '09:00')}">${escapeHtml(s.code)} - ${escapeHtml(s.name)} ${targetLabel}</option>`;
   }).join("");
 
   if (currentQrVal && allSubjects.some(s => (s.id || s.code) === currentQrVal)) {
@@ -795,7 +861,7 @@ function updateSubjectDropdowns() {
     allSubjects.forEach(s => {
       if (s.code && !seen.has(s.code)) {
         seen.add(s.code);
-        filterOpts += `<option value="${s.code}">${s.code} - ${s.name}</option>`;
+        filterOpts += `<option value="${escapeHtml(s.code)}">${escapeHtml(s.code)} - ${escapeHtml(s.name)}</option>`;
       }
     });
     filterSubject.innerHTML = filterOpts;
@@ -812,14 +878,20 @@ if (createSubjectForm) {
     e.preventDefault();
     if (subjectCreationAlert) subjectCreationAlert.className = "hidden";
 
-    const code = newSubjectCode.value.trim().toUpperCase();
+    const rawCode = newSubjectCode.value.trim().toUpperCase();
     const name = newSubjectName.value.trim();
     const targetGrade = newSubjectTarget ? newSubjectTarget.value.trim() : "";
     const startTime = newSubjectTime.value || "09:00";
     const room = newSubjectRoom.value.trim();
 
-    if (!code || !name) {
+    if (!rawCode || !name) {
       alert("กรุณาระบุรหัสวิชาและชื่อวิชา");
+      return;
+    }
+
+    const code = sanitizeDbKey(rawCode);
+    if (code !== rawCode || !code) {
+      alert("รหัสวิชาต้องไม่มีอักขระพิเศษ เช่น / . # $ [ ]");
       return;
     }
 
@@ -840,7 +912,7 @@ if (createSubjectForm) {
 
       if (subjectCreationAlert) {
         subjectCreationAlert.className = "result-box badge-absent";
-        subjectCreationAlert.innerHTML = `⚠️ <strong>พบข้อมูลซ้ำ:</strong> รหัสวิชา <strong>${code}</strong> ${targetDisplay} มีอยู่ในระบบแล้ว ไม่สามารถบันทึกซ้ำได้ หากต้องการแก้ไขโปรดกดปุ่ม <strong>แก้ไข</strong> ในตาราง`;
+        subjectCreationAlert.innerHTML = `⚠️ <strong>พบข้อมูลซ้ำ:</strong> รหัสวิชา <strong>${escapeHtml(code)}</strong> ${escapeHtml(targetDisplay)} มีอยู่ในระบบแล้ว ไม่สามารถบันทึกซ้ำได้ หากต้องการแก้ไขโปรดกดปุ่ม <strong>แก้ไข</strong> ในตาราง`;
         subjectCreationAlert.style.display = "block";
       }
       return;
@@ -867,7 +939,7 @@ if (createSubjectForm) {
 
       if (subjectCreationAlert) {
         subjectCreationAlert.className = "result-box badge-ontime";
-        subjectCreationAlert.innerHTML = `✅ เพิ่มวิชา <strong>${code} - ${name}</strong> ${targetGrade ? `(สำหรับชั้น ${targetGrade})` : ''} สำเร็จแล้ว!`;
+        subjectCreationAlert.innerHTML = `✅ เพิ่มวิชา <strong>${escapeHtml(code)} - ${escapeHtml(name)}</strong> ${targetGrade ? `(สำหรับชั้น ${escapeHtml(targetGrade)})` : ''} สำเร็จแล้ว!`;
         subjectCreationAlert.style.display = "block";
       }
 
@@ -877,7 +949,7 @@ if (createSubjectForm) {
       console.error("Create subject error:", err);
       if (subjectCreationAlert) {
         subjectCreationAlert.className = "result-box badge-absent";
-        subjectCreationAlert.innerHTML = `❌ ไม่สามารถเพิ่มวิชาได้: ${err.message}`;
+        subjectCreationAlert.innerHTML = `❌ ไม่สามารถเพิ่มวิชาได้: ${escapeHtml(err.message)}`;
         subjectCreationAlert.style.display = "block";
       }
     } finally {
@@ -885,8 +957,6 @@ if (createSubjectForm) {
       btnSaveSubject.innerHTML = `<span>💾</span> บันทึกรายวิชา`;
     }
   });
-}
-
 // Edit Subject Modal Handlers
 function openEditSubjectModal(subject) {
   editSubjectCodeHidden.value = subject.id || subject.code;

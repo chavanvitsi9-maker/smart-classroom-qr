@@ -3,7 +3,7 @@
 // Smart Classroom QR Attendance System - Offline Asset Caching
 // ============================================================================
 
-const CACHE_NAME = 'smart-classroom-qr-v1.0.6';
+const CACHE_NAME = 'smart-classroom-qr-v2.0.0';
 const STATIC_ASSETS = [
   './',
   './index.html',
@@ -16,7 +16,7 @@ const STATIC_ASSETS = [
   './assets/chibi-placeholder.png',
   './assets/icon-192.png',
   './assets/icon-512.png',
-  'https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Sarabun:wght@300;400;500;600;700&display=swap',
+  'https://fonts.googleapis.com/css2?family=Chakra+Petch:ital,wght@0,300;0,400;0,600;0,700;1,400;1,700&family=Inter:wght@400;500;600;700&family=Orbitron:wght@500;600;700;800;900&family=Prompt:wght@300;400;500;600;700&family=Rajdhani:wght@500;600;700&display=swap',
   'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js'
 ];

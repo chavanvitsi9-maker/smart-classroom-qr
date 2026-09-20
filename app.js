@@ -76,6 +76,24 @@ const modalDetails = document.getElementById("modal-details");
 const btnCloseModal = document.getElementById("btn-close-modal");
 
 // ----------------------------------------------------------------------------
+// Security Helpers: XSS Prevention & Firebase Path Sanitizer
+// ----------------------------------------------------------------------------
+function escapeHtml(str) {
+  if (str === null || str === undefined) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function sanitizeDbKey(key) {
+  if (!key) return "";
+  return String(key).trim().replace(/[.#$\[\]\/]/g, "_");
+}
+
+// ----------------------------------------------------------------------------
 // 1. Audio Effect (Web Audio API Cute Chime)
 // ----------------------------------------------------------------------------
 function playCuteChime(type = "success") {
@@ -155,6 +173,13 @@ studentLoginForm.addEventListener("submit", async (e) => {
 
   if (!rawId || !enteredPin) {
     showLoginAlert("โปรดระบุรหัสนักศึกษาและรหัส PIN");
+    return;
+  }
+
+  // Prevent Firebase Path crash if user inputs invalid path chars (. # $ [ ] /)
+  const cleanId = sanitizeDbKey(rawId);
+  if (cleanId !== rawId || !cleanId) {
+    showLoginAlert("รหัสนักศึกษาต้องไม่มีอักขระพิเศษ เช่น / . # $ [ ]");
     return;
   }
 
@@ -573,7 +598,9 @@ function onScanFailure(error) {
 // 8. Attendance Validation & Database Submission
 // ----------------------------------------------------------------------------
 async function onScanSuccess(decodedText) {
+  // Concurrency Guard: Lock immediately to prevent parallel executions from rapid camera frames
   if (isSubmitting) return;
+  isSubmitting = true;
 
   console.log("QR Code Scanned:", decodedText);
 
@@ -581,7 +608,6 @@ async function onScanSuccess(decodedText) {
   try {
     qrData = JSON.parse(decodedText);
   } catch (e) {
-    // If not JSON, check if it's formatted as 'SUBJECT_TIMESTAMP' or similar
     qrData = { raw: decodedText };
   }
 
@@ -592,9 +618,10 @@ async function onScanSuccess(decodedText) {
   if (qrData.subjectCode && selectedSubject && qrData.subjectCode !== selectedSubject.code) {
     playCuteChime("error");
     showScanValidation(
-      `วิชาไม่ตรงกัน! คุณเลือก ${selectedSubject.code} แต่คิวอาร์โค้ดนี้คือวิชา ${qrData.subjectCode}`,
+      `วิชาไม่ตรงกัน! คุณเลือก ${escapeHtml(selectedSubject.code)} แต่คิวอาร์โค้ดนี้คือวิชา ${escapeHtml(qrData.subjectCode)}`,
       "Absent"
     );
+    isSubmitting = false;
     return;
   }
 
@@ -603,9 +630,10 @@ async function onScanSuccess(decodedText) {
     const myRoom = currentStudentProfile?.gradeGroup || currentStudentProfile?.room || "-";
     playCuteChime("error");
     showScanValidation(
-      `คิวอาร์โค้ดนี้สำหรับนักเรียนห้อง ${qrData.targetGrade} เท่านั้น (ห้องของคุณ: ${myRoom})`,
+      `คิวอาร์โค้ดนี้สำหรับนักเรียนห้อง ${escapeHtml(qrData.targetGrade)} เท่านั้น (ห้องของคุณ: ${escapeHtml(myRoom)})`,
       "Absent"
     );
+    isSubmitting = false;
     return;
   }
 
@@ -629,12 +657,12 @@ async function onScanSuccess(decodedText) {
     if (ageSeconds > 45) {
       playCuteChime("error");
       showScanValidation("คิวอาร์โค้ดนี้หมดอายุแล้ว (เกิน 30 วินาที) โปรดสแกนโค้ดใหม่บนจออาจารย์", "Absent");
+      isSubmitting = false;
       return;
     }
   }
 
   // Calculate Start Time & Attendance Status
-  // Priority: QR startTime -> subject's defaultStartTime today -> now
   let classStartTime = new Date();
   if (qrData.startTime) {
     classStartTime = new Date(qrData.startTime);
@@ -664,32 +692,31 @@ async function onScanSuccess(decodedText) {
       `หมดเวลาเช็คชื่อแล้ว! สแกนช้ากว่าเวลาเริ่มเรียน ${diffMinutes} นาที (สถานะ: ขาดเรียน) ระบบบล็อกการบันทึกข้อมูล`,
       "Absent"
     );
+    isSubmitting = false;
     return;
   }
 
   // Date Key (YYYY-MM-DD)
   const dateStr = now.toISOString().split("T")[0];
-  const subjectCode = selectedSubject ? selectedSubject.code : (qrData.subjectCode || "GENERAL");
-  const attendanceRecordKey = `${currentStudentId}_${subjectCode}_${dateStr}`;
+  const subjectCode = sanitizeDbKey(selectedSubject ? selectedSubject.code : (qrData.subjectCode || "GENERAL"));
+  const sanitizedStudentId = sanitizeDbKey(currentStudentId);
+  const attendanceRecordKey = `${sanitizedStudentId}_${subjectCode}_${dateStr}`;
 
   // Check if this subject is allowed for this student's class
   if (selectedSubject && !isSubjectForStudent(selectedSubject, currentStudentProfile)) {
     playCuteChime("error");
-    showScanValidation(`วิชา ${subjectCode} ไม่ได้เปิดสอนสำหรับชั้นเรียนของคุณ`, "Absent");
+    showScanValidation(`วิชา ${escapeHtml(subjectCode)} ไม่ได้เปิดสอนสำหรับชั้นเรียนของคุณ`, "Absent");
+    isSubmitting = false;
     return;
   }
 
-  // Double Submission Prevention Guard
-  isSubmitting = true;
   btnStartScanner.disabled = true;
 
   try {
     const existingSnap = await get(ref(db, `attendance/${attendanceRecordKey}`));
     if (existingSnap.exists()) {
       playCuteChime("error");
-      showScanValidation(`คุณได้เช็คชื่อวิชา ${subjectCode} สำหรับวันนี้ไปเรียบร้อยแล้ว`, "Late");
-      isSubmitting = false;
-      btnStartScanner.disabled = false;
+      showScanValidation(`คุณได้เช็คชื่อวิชา ${escapeHtml(subjectCode)} สำหรับวันนี้ไปเรียบร้อยแล้ว`, "Late");
       return;
     }
 
@@ -749,24 +776,24 @@ function showSuccessCelebration(record, statusText) {
   modalDetails.innerHTML = `
     <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
       <span class="text-muted">รหัสนักศึกษา:</span>
-      <strong>${record.studentId}</strong>
+      <strong>${escapeHtml(record.studentId)}</strong>
     </div>
     <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
       <span class="text-muted">ชื่อ-สกุล:</span>
-      <strong>${record.studentName}</strong>
+      <strong>${escapeHtml(record.studentName)}</strong>
     </div>
     <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
       <span class="text-muted">วิชา:</span>
-      <strong style="color: var(--neon-cyan);">${record.subjectCode} - ${record.subjectName}</strong>
+      <strong style="color: var(--neon-cyan);">${escapeHtml(record.subjectCode)} - ${escapeHtml(record.subjectName)}</strong>
     </div>
     <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
       <span class="text-muted">เวลาสแกน:</span>
-      <strong>${new Date(record.scanTime).toLocaleTimeString('th-TH')}</strong>
+      <strong>${escapeHtml(new Date(record.scanTime).toLocaleTimeString('th-TH'))}</strong>
     </div>
     <div style="display: flex; justify-content: space-between;">
       <span class="text-muted">ผลการเช็คชื่อ:</span>
       <span class="badge-status ${record.status === 'OnTime' ? 'badge-ontime' : 'badge-late'}">
-        ${statusText}
+        ${escapeHtml(statusText)}
       </span>
     </div>
   `;
@@ -811,9 +838,9 @@ function listenToStudentAttendanceHistory(studentId) {
 
       return `
         <tr>
-          <td><strong style="color: var(--neon-cyan);">${r.subjectCode}</strong> ${r.subjectName || ''}</td>
-          <td>${timeStr} น.</td>
-          <td><span class="badge-status ${badgeClass}">${statusLabel}</span></td>
+          <td><strong style="color: var(--neon-cyan);">${escapeHtml(r.subjectCode)}</strong> ${escapeHtml(r.subjectName || '')}</td>
+          <td>${escapeHtml(timeStr)} น.</td>
+          <td><span class="badge-status ${badgeClass}">${escapeHtml(statusLabel)}</span></td>
         </tr>
       `;
     }).join("");

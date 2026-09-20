@@ -98,34 +98,22 @@ export {
 };
 
 /**
- * Checks if a given user or email belongs to a teacher.
- * Automatically recognizes chavanvit.si9@gmail.com, configured emails,
- * and any user authenticated via Google Sign-In.
+ * Checks if a given user or email belongs to an authorized teacher.
+ * Strictly verifies email against ALLOWED_TEACHER_EMAILS.
  */
 export function isTeacherUser(userOrEmail) {
   if (!userOrEmail) return false;
   let email = "";
-  let isGoogle = false;
   
   if (typeof userOrEmail === "string") {
     email = userOrEmail.toLowerCase().trim();
   } else {
     email = (userOrEmail.email || "").toLowerCase().trim();
-    if (userOrEmail.providerData && userOrEmail.providerData.some(p => p.providerId === "google.com")) {
-      isGoogle = true;
-    }
   }
 
-  if (email === "chavanvit.si9@gmail.com" || email === "teacher@example.com") {
-    return true;
-  }
-  if (ALLOWED_TEACHER_EMAILS.some(e => e.toLowerCase().trim() === email)) {
-    return true;
-  }
-  if (isGoogle) {
-    return true;
-  }
-  return false;
+  if (!email) return false;
+
+  return ALLOWED_TEACHER_EMAILS.some(e => e.toLowerCase().trim() === email);
 }
 
 export function isTeacherEmail(email) {
