@@ -957,6 +957,8 @@ if (createSubjectForm) {
       btnSaveSubject.innerHTML = `<span>💾</span> บันทึกรายวิชา`;
     }
   });
+}
+
 // Edit Subject Modal Handlers
 function openEditSubjectModal(subject) {
   editSubjectCodeHidden.value = subject.id || subject.code;
